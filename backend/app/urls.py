@@ -16,8 +16,12 @@ Including another URLconf
 """
 
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, include
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    # 新的 API Schema 结构
+    # path("api/", include("api.urls")),
+    # 保留旧接口以向后兼容（可选，稍后可删除）
+    path("api/accounts/", include("accounts.urls")),
 ]
