@@ -9,7 +9,7 @@ https://docs.djangoproject.com/en/4.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.2/ref/settings/
 """
-
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -25,7 +25,7 @@ SECRET_KEY = "django-insecure-csn4hiy_nk_q2ylcla2t&)56&ih)$vuyrsjl$^+=s)x5%0pv9e
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 
 
 # Application definition
@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     "corsheaders",
     # Local apps
     "accounts",
+    "sync",
 ]
 
 MIDDLEWARE = [
@@ -80,21 +81,27 @@ WSGI_APPLICATION = "app.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
 
+# DATABASES = {
+#     "default": {
+#         "ENGINE": "django.db.backends.mysql",
+#         "NAME": "smartpaste_db",
+#         "USER": "smartpaste_user",
+#         "PASSWORD": "smartpaste_pass",
+#         "HOST": "localhost",  # 使用 localhost 连接本地 MySQL
+#         "PORT": "3306",
+#         "OPTIONS": {
+#             "charset": "utf8mb4",
+#             "init_command": "SET sql_mode='STRICT_TRANS_TABLES'",
+#         },
+#     }
+# }
+# 使用 SQLite 进行本地测试
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.mysql",
-        "NAME": "smartpaste_db",
-        "USER": "smartpaste_user",
-        "PASSWORD": "smartpaste_pass",
-        "HOST": "localhost",  # 使用 localhost 连接本地 MySQL
-        "PORT": "3306",
-        "OPTIONS": {
-            "charset": "utf8mb4",
-            "init_command": "SET sql_mode='STRICT_TRANS_TABLES'",
-        },
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "db.sqlite3",
     }
 }
-
 
 # Password validation
 # https://docs.djangoproject.com/en/4.2/ref/settings/#auth-password-validators
@@ -160,3 +167,11 @@ CORS_ALLOWED_ORIGINS = [
 ]
 
 CORS_ALLOW_CREDENTIALS = True
+
+# Static files (CSS, JavaScript, Images)
+STATIC_URL = "static/"
+
+# Media files (User uploaded files)
+import os
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
