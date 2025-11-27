@@ -9,8 +9,13 @@ https://docs.djangoproject.com/en/4.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.2/ref/settings/
 """
+
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+# 加载环境变量
+load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -25,7 +30,7 @@ SECRET_KEY = "django-insecure-csn4hiy_nk_q2ylcla2t&)56&ih)$vuyrsjl$^+=s)x5%0pv9e
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = ["*"]
 
 
 # Application definition
@@ -44,6 +49,7 @@ INSTALLED_APPS = [
     # Local apps
     "accounts",
     "sync",
+    "tools",
 ]
 
 MIDDLEWARE = [
@@ -81,26 +87,39 @@ WSGI_APPLICATION = "app.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
 
-# DATABASES = {
-#     "default": {
-#         "ENGINE": "django.db.backends.mysql",
-#         "NAME": "smartpaste_db",
-#         "USER": "smartpaste_user",
-#         "PASSWORD": "smartpaste_pass",
-#         "HOST": "localhost",  # 使用 localhost 连接本地 MySQL
-#         "PORT": "3306",
-#         "OPTIONS": {
-#             "charset": "utf8mb4",
-#             "init_command": "SET sql_mode='STRICT_TRANS_TABLES'",
-#         },
-#     }
-# }
-# 使用 SQLite 进行本地测试
+# 获取数据库选择配置
+DEFAULT_DB_TYPE = os.environ.get("DEFAULT_DATABASE", "mysql").lower()
+
+# MySQL数据库配置
+MYSQL_CONFIG = {
+    "ENGINE": "django.db.backends.mysql",
+    "NAME": os.environ.get("MYSQL_DATABASE", "smartpaste_db"),
+    "USER": os.environ.get("MYSQL_USER", "smartpaste_user"),
+    "PASSWORD": os.environ.get("MYSQL_PASSWORD", "smartpaste_pass"),
+    "HOST": os.environ.get("MYSQL_HOST", "localhost"),
+    "PORT": os.environ.get("MYSQL_PORT", "3306"),
+    "OPTIONS": {
+        "charset": "utf8mb4",
+        "init_command": "SET sql_mode='STRICT_TRANS_TABLES'",
+    },
+}
+
+# SQLite数据库配置
+SQLITE_CONFIG = {
+    "ENGINE": "django.db.backends.sqlite3",
+    "NAME": BASE_DIR / "db.sqlite3",
+}
+
+# 动态数据库配置
 DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-    }
+    # 根据环境变量选择默认数据库
+    "default": MYSQL_CONFIG if DEFAULT_DB_TYPE == "mysql" else SQLITE_CONFIG,
+    # MySQL数据库（总是可用）
+    "mysql": MYSQL_CONFIG,
+    # SQLite数据库（总是可用）
+    "sqlite": SQLITE_CONFIG,
+    # 云端同步数据库（指向MySQL）
+    "cloud_mysql": MYSQL_CONFIG,
 }
 
 # Password validation
@@ -172,6 +191,5 @@ CORS_ALLOW_CREDENTIALS = True
 STATIC_URL = "static/"
 
 # Media files (User uploaded files)
-import os
-MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+MEDIA_URL = "/media/"
+MEDIA_ROOT = os.path.join(BASE_DIR, "media")
