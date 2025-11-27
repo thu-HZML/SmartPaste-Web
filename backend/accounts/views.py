@@ -7,7 +7,7 @@ from .serializers import (
     UserSerializer,
     RegisterSerializer,
     LoginSerializer,
-    ChangePasswordSerializer
+    ChangePasswordSerializer,
 )
 
 User = get_user_model()
@@ -25,6 +25,7 @@ class RegisterView(generics.CreateAPIView):
         "phone": "13800138000"
     }
     """
+
     queryset = User.objects.all()
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
@@ -33,15 +34,18 @@ class RegisterView(generics.CreateAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
-        
+
         # 自动创建 Token
         token, created = Token.objects.get_or_create(user=user)
-        
-        return Response({
-            'user': UserSerializer(user).data,
-            'token': token.key,
-            'message': '注册成功'
-        }, status=status.HTTP_201_CREATED)
+
+        return Response(
+            {
+                "user": UserSerializer(user).data,
+                "token": token.key,
+                "message": "register success",
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class LoginView(APIView):
@@ -53,31 +57,36 @@ class LoginView(APIView):
         "password": "SecurePass123!"
     }
     """
+
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
-        username = serializer.validated_data['username']
-        password = serializer.validated_data['password']
-        
+
+        username = serializer.validated_data["username"]
+        password = serializer.validated_data["password"]
+
         # 验证用户名和密码
         user = authenticate(username=username, password=password)
-        
+
         if user is not None:
             # 获取或创建 Token
             token, created = Token.objects.get_or_create(user=user)
-            
-            return Response({
-                'user': UserSerializer(user).data,
-                'token': token.key,
-                'message': '登录成功'
-            }, status=status.HTTP_200_OK)
+
+            return Response(
+                {
+                    "user": UserSerializer(user).data,
+                    "token": token.key,
+                    "message": "login success",
+                },
+                status=status.HTTP_200_OK,
+            )
         else:
-            return Response({
-                'error': '用户名或密码错误'
-            }, status=status.HTTP_401_UNAUTHORIZED)
+            return Response(
+                {"error": "username or password is incorrect"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
 
 
 class LogoutView(APIView):
@@ -86,19 +95,16 @@ class LogoutView(APIView):
     POST /api/accounts/logout/
     Headers: Authorization: Token <your_token>
     """
+
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         # 删除用户的 Token
         try:
             request.user.auth_token.delete()
-            return Response({
-                'message': '登出成功'
-            }, status=status.HTTP_200_OK)
+            return Response({"message": "logout success"}, status=status.HTTP_200_OK)
         except Exception as e:
-            return Response({
-                'error': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class UserProfileView(generics.RetrieveUpdateAPIView):
@@ -108,6 +114,7 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
     PUT/PATCH /api/accounts/profile/
     Headers: Authorization: Token <your_token>
     """
+
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAuthenticated]
 
@@ -126,29 +133,31 @@ class ChangePasswordView(APIView):
         "new_password2": "NewPass123!"
     }
     """
+
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         serializer = ChangePasswordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
+
         user = request.user
-        
+
         # 验证旧密码
-        if not user.check_password(serializer.validated_data['old_password']):
-            return Response({
-                'error': '旧密码错误'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
+        if not user.check_password(serializer.validated_data["old_password"]):
+            return Response(
+                {"error": "old password is incorrect"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         # 设置新密码
-        user.set_password(serializer.validated_data['new_password'])
+        user.set_password(serializer.validated_data["new_password"])
         user.save()
-        
+
         # 更新 Token
         Token.objects.filter(user=user).delete()
         token = Token.objects.create(user=user)
-        
-        return Response({
-            'message': '密码修改成功',
-            'token': token.key
-        }, status=status.HTTP_200_OK)
+
+        return Response(
+            {"message": "password changed successfully", "token": token.key},
+            status=status.HTTP_200_OK,
+        )
