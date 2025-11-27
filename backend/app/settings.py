@@ -14,6 +14,9 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
+# JWT Configuration
+from datetime import timedelta
+
 # 加载环境变量
 load_dotenv()
 
@@ -44,7 +47,11 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     # Third party apps
     "rest_framework",
+    # Token Authentication
     "rest_framework.authtoken",
+    # JWT Authentication
+    "rest_framework_simplejwt",
+    "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
     # Local apps
     "accounts",
@@ -169,7 +176,8 @@ AUTH_USER_MODEL = "accounts.User"
 # Django REST Framework
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework.authentication.TokenAuthentication",
+        "rest_framework_simplejwt.authentication.JWTAuthentication",  # 使用标准JWT认证
+        "rest_framework.authentication.TokenAuthentication",  # 向后兼容Django Token认证
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
@@ -193,3 +201,33 @@ STATIC_URL = "static/"
 # Media files (User uploaded files)
 MEDIA_URL = "/media/"
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
+
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=24),  # 访问令牌24小时
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),  # 刷新令牌7天
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+    "UPDATE_LAST_LOGIN": True,
+    "ALGORITHM": "HS256",
+    "SIGNING_KEY": SECRET_KEY,
+    "VERIFYING_KEY": None,
+    "AUDIENCE": None,
+    "ISSUER": "SmartPaste-Web",
+    "JWK_URL": None,
+    "LEEWAY": 0,
+    "AUTH_HEADER_TYPES": ("Bearer",),
+    "AUTH_HEADER_NAME": "HTTP_AUTHORIZATION",
+    "USER_ID_FIELD": "id",
+    "USER_ID_CLAIM": "user_id",
+    "USER_AUTHENTICATION_RULE": "rest_framework_simplejwt.authentication.default_user_authentication_rule",
+    "AUTH_TOKEN_CLASSES": ("rest_framework_simplejwt.tokens.AccessToken",),
+    "TOKEN_TYPE_CLAIM": "token_type",
+    "TOKEN_USER_CLASS": "rest_framework_simplejwt.models.TokenUser",
+    "JTI_CLAIM": "jti",
+}
+
+# Custom JWT Settings
+JWT_SECRET = SECRET_KEY
+JWT_EXPIRE_HOURS = 24  # JWT有效期小时数
+SALT = SECRET_KEY[:16].encode("utf-8")  # 密码加盐
