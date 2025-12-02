@@ -60,6 +60,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",  # 本地测试，确保可以实现跨域访问
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "corsheaders.middleware.CorsMiddleware",
@@ -69,6 +70,12 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+
+# CORS 配置
+CORS_ALLOW_ALL_ORIGINS = (
+    True  # 开发环境可以这样设置，以实现跨域请求，生产环境请配置具体域名
+)
 
 ROOT_URLCONF = "app.urls"
 
