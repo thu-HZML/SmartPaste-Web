@@ -18,8 +18,11 @@ from .serializers import (
     LoginSerializer,
     ChangePasswordSerializer,
 )
+import logging
 
 User = get_user_model()
+
+logger = logging.getLogger(__name__)
 
 
 class RegisterView(generics.CreateAPIView):
@@ -57,6 +60,7 @@ class RegisterView(generics.CreateAPIView):
 
         # 创建JWT令牌
         try:
+            logger.debug(f"Creating JWT for new user: {user.username}")
             jwt_tokens = create_jwt_for_user(user)
 
             # 记录注册事件
@@ -79,6 +83,7 @@ class RegisterView(generics.CreateAPIView):
 
         except Exception:
             # 如果JWT创建失败，依然返回传统的Token
+            logger.error(f"JWT creation failed for new user: {user.username}")
             return Response(
                 {
                     "user": UserSerializer(user).data,
@@ -113,22 +118,28 @@ class LoginView(APIView):
 
     def post(self, request: Request) -> Response:
         """处理用户登录请求"""
+        logger.debug("Login attempt for user")
+
         # 验证请求数据
+        logger.debug("Validating login data")
         serializer = LoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         # 提取登录凭据和请求信息
+        logger.debug("Extracting credentials and request info")
         username = serializer.validated_data["username"]
         password = serializer.validated_data["password"]
         ip_address: str = get_client_ip(request)
         user_agent: str = request.META.get("HTTP_USER_AGENT", "")
 
         # Django身份验证
+        logger.debug(f"Authenticating user: {username}")
         user: Optional[AbstractUser] = authenticate(
             username=username, password=password
         )
 
         if user is not None and user.is_active:
+            logger.debug(f"User authenticated: {username}, creating tokens")
             # 获取或创建Django Token（向后兼容）
             token, _ = Token.objects.get_or_create(user=user)
 
@@ -174,6 +185,7 @@ class LoginView(APIView):
                 )
         else:
             # 登录失败
+            logger.warning(f"Login failed for user: {username}")
             log_security_event(
                 "login_failed",
                 username=username,

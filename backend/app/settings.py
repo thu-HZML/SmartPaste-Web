@@ -202,7 +202,7 @@ STATIC_URL = "static/"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
-
+# JWT Settings
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(hours=24),  # 访问令牌24小时
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),  # 刷新令牌7天
@@ -231,3 +231,38 @@ SIMPLE_JWT = {
 JWT_SECRET = SECRET_KEY
 JWT_EXPIRE_HOURS = 24  # JWT有效期小时数
 SALT = SECRET_KEY[:16].encode("utf-8")  # 密码加盐
+
+# log settings
+LOG_DIR = BASE_DIR / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "simple": {"format": "%(asctime)s %(levelname)s %(name)s: %(message)s"},
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "simple",
+            "level": "DEBUG",
+        },
+        "file": {
+            "class": "logging.FileHandler",
+            "filename": "logs/smartpaste.log",
+            "formatter": "simple",
+            "level": "INFO",
+        },
+    },
+    "loggers": {
+        "utils.jwt": {
+            "handlers": ["file", "console"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+    },
+    "root": {
+        "handlers": ["console", "file"],
+        "level": "DEBUG",
+    },
+}
