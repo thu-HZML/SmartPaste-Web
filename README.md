@@ -13,21 +13,29 @@ python -m venv venv
 # 2. 安装 Django 和 Django REST Framework
 pip install django djangorestframework
 
+# 或者直接从 requirements.txt 安装依赖
+pip install -r requirements.txt
+
 ```
 
 
 
-### 第二步：本地测试 (不包含 Docker)
+### 第二步：本地运行服务器
 
 在打包 Docker 之前，先确认代码是通的。
 
-1.  **生成数据库表**：
+1.  **docker-compose**：
+    ```bash
+    docker-compose up -d
+    ```
+    
+2.  **生成数据库表**：
     ```bash
     python manage.py makemigrations
     python manage.py migrate
     ```
 
-2.  **启动服务**：
+3.  **启动服务**：
     ```bash
     python manage.py runserver
     ```
