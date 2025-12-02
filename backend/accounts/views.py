@@ -29,7 +29,7 @@ class RegisterView(generics.CreateAPIView):
     """
     用户注册API视图
 
-    支持新用户注册并返回JWT和Token双重认证令牌
+    支持新用户注册。注册成功后不返回Token，用户需单独登录。
 
     Endpoint: POST /api/accounts/register/
     Permission: AllowAny (公开接口)
@@ -42,7 +42,7 @@ class RegisterView(generics.CreateAPIView):
         phone (str, optional): 手机号码
 
     Response:
-        201: 注册成功，返回用户信息和认证令牌
+        201: 注册成功，返回用户信息
         400: 请求数据验证失败
     """
 
@@ -55,44 +55,21 @@ class RegisterView(generics.CreateAPIView):
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
 
-        # 创建Token（保持向后兼容）
-        token, created = Token.objects.get_or_create(user=user)
+        # 记录注册事件
+        log_security_event(
+            "user_register",
+            username=user.username,
+            ip_address=get_client_ip(request),
+            user_agent=request.META.get("HTTP_USER_AGENT", ""),
+        )
 
-        # 创建JWT令牌
-        try:
-            logger.debug(f"Creating JWT for new user: {user.username}")
-            jwt_tokens = create_jwt_for_user(user)
-
-            # 记录注册事件
-            log_security_event(
-                "user_register",
-                username=user.username,
-                ip_address=get_client_ip(request),
-                user_agent=request.META.get("HTTP_USER_AGENT", ""),
-            )
-
-            return Response(
-                {
-                    "user": UserSerializer(user).data,
-                    "token": token.key,  # 保持向后兼容
-                    "jwt": jwt_tokens,  # 新的JWT令牌
-                    "message": "注册成功",
-                },
-                status=status.HTTP_201_CREATED,
-            )
-
-        except Exception:
-            # 如果JWT创建失败，依然返回传统的Token
-            logger.error(f"JWT creation failed for new user: {user.username}")
-            return Response(
-                {
-                    "user": UserSerializer(user).data,
-                    "token": token.key,
-                    "message": "注册成功（使用Token认证）",
-                    "warning": "JWT创建失败，使用Token认证",
-                },
-                status=status.HTTP_201_CREATED,
-            )
+        return Response(
+            {
+                "user": UserSerializer(user).data,
+                "message": "registration successful. Please log in.",
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class LoginView(APIView):
@@ -160,7 +137,7 @@ class LoginView(APIView):
                         "user": UserSerializer(user).data,
                         "token": token.key,  # Django Token（兼容性）
                         "jwt": jwt_tokens,  # JWT令牌对（推荐）
-                        "message": "登录成功",
+                        "message": "login successful",
                     },
                     status=status.HTTP_200_OK,
                 )
