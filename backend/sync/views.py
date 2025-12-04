@@ -6,7 +6,10 @@ from django.http import FileResponse
 from utils.jwt import login_required, get_client_ip, log_security_event
 from .models import UserConfig, ClipboardFile
 from .serializers import UserConfigSerializer, ClipboardFileSerializer
-import os
+
+# import os
+from .db import sync_sqlite_to_db
+from utils.jwt import JWTAuthentication
 
 
 class ConfigSyncView(views.APIView):
@@ -165,7 +168,6 @@ class FileUploadView(views.APIView):
             )
 
 
-
 class FileListView(generics.ListAPIView):
     """
     GET: 获取用户所有云端文件的列表
@@ -207,3 +209,78 @@ class FileDeleteView(generics.DestroyAPIView):
 
         # 执行删除
         super().perform_destroy(instance)
+
+
+class SqliteSyncView(views.APIView):
+    """
+    POST: 上传 SQLite 数据库文件并同步数据到服务器
+    需携带 JWT Token 进行鉴权
+    """
+
+    # 显式指定使用自定义的 JWTAuthentication，确保调用 jwt.py 中的解析逻辑
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [parsers.MultiPartParser, parsers.FormParser]
+
+    def post(self, request: Request) -> Response:
+        """接收 SQLite 文件并执行同步"""
+        try:
+            file_obj = request.FILES.get("file")
+            if not file_obj:
+                return Response(
+                    {"error": "no database file provided"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # 记录开始同步事件
+            log_security_event(
+                "sqlite_sync_start",
+                username=request.user.username,
+                ip_address=get_client_ip(request),
+                details=f"File size: {file_obj.size} bytes",
+            )
+
+            # 调用同步逻辑 (db.py)
+            # 注意：sync_sqlite_to_db 内部使用了事务，保证原子性
+            sync_sqlite_to_db(request.user, file_obj)
+
+            # 记录同步成功事件
+            log_security_event(
+                "sqlite_sync_success",
+                username=request.user.username,
+                ip_address=get_client_ip(request),
+            )
+
+            return Response(
+                {
+                    "message": "database synchronization successful",
+                    "code": "SYNC_SUCCESS",
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except ValueError as e:
+            # 捕获业务逻辑错误（如 SQLite 文件损坏）
+            log_security_event(
+                "sqlite_sync_failed",
+                username=request.user.username,
+                ip_address=get_client_ip(request),
+                details=f"Value Error: {str(e)}",
+            )
+            return Response(
+                {"error": str(e), "code": "SYNC_DATA_ERROR"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        except Exception as e:
+            # 捕获未预期的服务器错误
+            log_security_event(
+                "sqlite_sync_error",
+                username=request.user.username,
+                ip_address=get_client_ip(request),
+                details=f"Internal Error: {str(e)}",
+            )
+            return Response(
+                {"error": f"数据同步失败: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )

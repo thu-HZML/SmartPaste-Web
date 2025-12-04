@@ -66,9 +66,34 @@ def generate_jwt(payload, expiry=None):
 
 def verify_jwt(token):
     """
-    验证JWT令牌
-    :param token: JWT字符串
-    :return: dict payload 或 None
+    验证JWT令牌并解析其载荷(Payload)
+
+    该函数执行以下操作：
+    1. 检查令牌是否存在
+    2. 移除可选的 'Bearer ' 前缀
+    3. 使用配置的密钥(JWT_SECRET)验证签名
+    4. 验证标准声明：过期时间(exp)、签发时间(iat)、生效时间(nbf)
+
+    Args:
+        token (str): JWT 字符串。可以是纯 Token 字符串，也可以包含 'Bearer ' 前缀。
+                     例如: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                     或者: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+
+    Returns: dict | None:
+        - 如果验证成功，返回解码后的 Payload 字典。
+            - payload格式：
+            ```json
+            {
+                "iss": "SmartPaste-Web",       // 签发者 (Issuer)
+                "exp": 1735689600,             // 过期时间 (Expiration Time, Unix时间戳)
+                "iat": 1735603200,             // 签发时间 (Issued At, Unix时间戳)
+                "nbf": 1735603200,             // 生效时间 (Not Before, Unix时间戳)
+                "user_id": 1,                  // [自定义] 用户ID (数据库主键)
+                "username": "zhangsan",        // [自定义] 用户名
+                "email": "zhangsan@example.com" // [自定义] 用户邮箱
+            }
+            ```
+        - 如果验证失败（过期、签名错误、格式错误等），返回 None。
     """
     if not token:
         return None
@@ -377,3 +402,13 @@ def jwt_required(view_func):
     JWT必需装饰器（别名）
     """
     return login_required(view_func)
+
+
+# 简单测试运行函数
+if __name__ == "__main__":
+    token = ""  # paste your test token here
+    payload = verify_jwt(token)
+    if payload:
+        print("Token is valid. Payload:", payload)
+    else:
+        print("Token is invalid or expired.")
