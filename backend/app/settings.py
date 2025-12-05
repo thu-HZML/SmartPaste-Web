@@ -136,6 +136,19 @@ DATABASES = {
     "cloud_mysql": MYSQL_CONFIG,
 }
 
+# --- Test Database Configuration ---
+# If running tests, use an in-memory SQLite database to speed up tests
+# and avoid permission issues with the main database.
+import sys
+
+if "test" in sys.argv:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": ":memory:",
+        }
+    }
+
 # Password validation
 # https://docs.djangoproject.com/en/4.2/ref/settings/#auth-password-validators
 
