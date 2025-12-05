@@ -99,8 +99,10 @@ def sync_sqlite_to_db(user, uploaded_file):
 
     except sqlite3.Error as e:
         # 捕获 SQLite 相关错误并抛出，以便上层 API 处理
-        raise ValueError(f"SQLite 读取或同步错误: {e}")
+        raise ValueError(f"SQLite error: {e}")
     finally:
         if conn:
             conn.close()
         # 4. 清理临时文件
+        if tmp_file_path and os.path.exists(tmp_file_path):
+            os.remove(tmp_file_path)
