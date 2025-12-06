@@ -284,7 +284,7 @@ class SqlitePushView(views.APIView):
                 details=f"Internal Error: {str(e)}",
             )
             return Response(
-                {"error": f"数据同步失败: {str(e)}"},
+                {"error": f"database synchronization failed: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
