@@ -1,15 +1,18 @@
-from typing import Optional
+from typing import Optional, Union
 from rest_framework import status, views, generics, permissions, parsers
 from rest_framework.response import Response
 from rest_framework.request import Request
-from django.http import FileResponse
-from utils.jwt import login_required, get_client_ip, log_security_event
+from django.http import FileResponse, StreamingHttpResponse
+from utils.jwt import (
+    JWTAuthentication,
+    login_required,
+    get_client_ip,
+    log_security_event,
+)
 from .models import UserConfig, ClipboardFile
 from .serializers import UserConfigSerializer, ClipboardFileSerializer
-
-# import os
-from .db import sync_sqlite_to_db
-from utils.jwt import JWTAuthentication
+from .db import sync_sqlite_to_db, download_sqlite_from_db
+import os
 
 
 class ConfigSyncView(views.APIView):
@@ -211,7 +214,7 @@ class FileDeleteView(generics.DestroyAPIView):
         super().perform_destroy(instance)
 
 
-class SqliteSyncView(views.APIView):
+class SqlitePushView(views.APIView):
     """
     POST: 上传 SQLite 数据库文件并同步数据到服务器
     需携带 JWT Token 进行鉴权
@@ -282,5 +285,88 @@ class SqliteSyncView(views.APIView):
             )
             return Response(
                 {"error": f"database synchronization failed: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class SqlitePullView(views.APIView):
+    """
+    GET: 导出当前用户的数据为 SQLite 文件并下载
+    需携带 JWT Token 进行鉴权
+    """
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request: Request) -> Union[Response, StreamingHttpResponse]:
+        try:
+            # 记录导出开始
+            log_security_event(
+                "sqlite_export_start",
+                username=request.user.username,
+                ip_address=get_client_ip(request),
+            )
+
+            tmp_path = download_sqlite_from_db(request.user)
+
+            def file_iterator(path, chunk_size=8192):
+                try:
+                    with open(path, "rb") as f:
+                        while True:
+                            chunk = f.read(chunk_size)
+                            if not chunk:
+                                break
+                            yield chunk
+                finally:
+                    # 流读取完后删除临时文件
+                    try:
+                        if os.path.exists(path):
+                            os.remove(path)
+                    except Exception:
+                        pass
+
+            response = StreamingHttpResponse(
+                file_iterator(tmp_path),
+                content_type="application/x-sqlite3",
+            )
+            response["Content-Disposition"] = (
+                'attachment; filename="clipboard_export.sqlite"'
+            )
+
+            # 记录导出成功（已开始传输）
+            log_security_event(
+                "sqlite_export_started",
+                username=request.user.username,
+                ip_address=get_client_ip(request),
+                details=f"Temp file: {tmp_path}",
+            )
+
+            return response
+
+        except ValueError as e:
+            log_security_event(
+                "sqlite_export_failed",
+                username=request.user.username,
+                ip_address=get_client_ip(request),
+                details=f"Value Error: {str(e)}",
+            )
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        except Exception as e:
+            # 尝试清理可能存在的临时文件
+            try:
+                if "tmp_path" in locals() and tmp_path and os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except Exception:
+                pass
+
+            log_security_event(
+                "sqlite_export_error",
+                username=request.user.username,
+                ip_address=get_client_ip(request),
+                details=str(e),
+            )
+            return Response(
+                {"error": f"database export failed: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
