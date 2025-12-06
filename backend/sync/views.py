@@ -3,7 +3,12 @@ from rest_framework import status, views, generics, permissions, parsers
 from rest_framework.response import Response
 from rest_framework.request import Request
 from django.http import FileResponse, StreamingHttpResponse
-from utils.jwt import login_required, get_client_ip, log_security_event
+from utils.jwt import (
+    JWTAuthentication,
+    login_required,
+    get_client_ip,
+    log_security_event,
+)
 from .models import UserConfig, ClipboardFile
 from .serializers import UserConfigSerializer, ClipboardFileSerializer
 from .db import sync_sqlite_to_db, download_sqlite_from_db

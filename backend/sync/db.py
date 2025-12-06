@@ -1,19 +1,45 @@
 import sqlite3
 import tempfile
 import os
+import ast
+import logging
+
+logger = logging.getLogger(__name__)
+
 from django.db import transaction
 from .models import ClipboardData, ClipboardFolder, FolderItem, ExtendedData
+
+
+def _ensure_bytes(val):
+    """把可能的 icon_data 值规范为 bytes 或 None"""
+    if val is None:
+        return None
+    # sqlite3 may return memoryview for BLOB
+    if isinstance(val, (bytes, bytearray, memoryview)):
+        return bytes(val)
+    if isinstance(val, str):
+        # 常见两种情形：1) 存的是 repr(bytes) -> "b'\\x01\\x02'"
+        #              2) 存的是普通字符串（用 utf-8 编码）
+        try:
+            # 尝试把 repr 字符串解析为 bytes
+            parsed = ast.literal_eval(val)
+            if isinstance(parsed, (bytes, bytearray)):
+                return bytes(parsed)
+        except Exception:
+            pass
+        try:
+            return val.encode("utf-8")
+        except Exception:
+            return None
+    return None
 
 
 def sync_sqlite_to_db(user, uploaded_file):
     """
     读取上传的 SQLite 文件并将数据同步到 Django Models 中。
-
     :param user: 当前操作的用户对象 (request.user)
     :param uploaded_file: Django 的 UploadedFile 对象 (request.FILES['file'])
     """
-
-    # 1. 将上传的文件流保存到临时文件，因为 sqlite3.connect 需要文件路径
     tmp_file_path = None
     with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
         for chunk in uploaded_file.chunks():
@@ -22,88 +48,110 @@ def sync_sqlite_to_db(user, uploaded_file):
 
     conn = None
     try:
-        # 2. 连接 SQLite 数据库
         conn = sqlite3.connect(tmp_file_path)
-        conn.row_factory = sqlite3.Row  # 允许通过列名访问数据 (row['id'])
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # 3. 使用事务原子性操作，确保数据一致性
         with transaction.atomic():
-            # --- A. 同步 Data 表 (ClipboardData) ---
+            # A. Data 表
             cursor.execute("SELECT * FROM data")
             rows = cursor.fetchall()
             for row in rows:
-                # update_or_create: 如果存在则更新，不存在则创建
-                ClipboardData.objects.update_or_create(
+                # 将 sqlite3.Row 转换为 dict，以便使用 .get() 方法
+                row_dict = dict(row)
+                client_id = str(row_dict["id"])
+                timestamp = row_dict.get("timestamp")
+                try:
+                    timestamp = int(timestamp) if timestamp is not None else None
+                except Exception:
+                    timestamp = None
+                is_fav = row_dict.get("is_favorite")
+                try:
+                    is_fav = bool(int(is_fav)) if is_fav is not None else False
+                except Exception:
+                    is_fav = bool(is_fav)
+
+                # create or update
+                obj, created = ClipboardData.objects.update_or_create(
                     user=user,
-                    client_id=row["id"],
+                    client_id=client_id,
                     defaults={
-                        "item_type": row["item_type"],
-                        "content": row["content"],
-                        "size": row["size"],
-                        "is_favorite": bool(
-                            row["is_favorite"]
-                        ),  # SQLite 0/1 -> Python False/True
-                        "notes": row["notes"],
-                        "timestamp": row["timestamp"],
+                        "item_type": row_dict.get("item_type"),
+                        "content": row_dict.get("content"),
+                        "size": int(row_dict.get("size"))
+                        if row_dict.get("size") not in (None, "")
+                        else 0,
+                        "is_favorite": is_fav,
+                        "notes": row_dict.get("notes") or "",
+                        "timestamp": timestamp or 0,
                     },
                 )
 
-            # --- B. 同步 Folders 表 (ClipboardFolder) ---
+            # B. Folders 表
             cursor.execute("SELECT * FROM folders")
             rows = cursor.fetchall()
             for row in rows:
+                row_dict = dict(row)
+                client_id = str(row_dict["id"])
                 ClipboardFolder.objects.update_or_create(
                     user=user,
-                    client_id=row["id"],
-                    defaults={"name": row["name"], "num_items": row["num_items"]},
+                    client_id=client_id,
+                    defaults={
+                        "name": row_dict.get("name") or "",
+                        "num_items": int(row_dict.get("num_items"))
+                        if row_dict.get("num_items") not in (None, "")
+                        else 0,
+                    },
                 )
 
-            # --- C. 同步 FolderItems 表 (FolderItem) ---
-            # 注意：必须在 Data 和 Folders 同步完成后进行
+            # C. FolderItems 表（关联必须在 Data 和 Folders 后）
             cursor.execute("SELECT * FROM folder_items")
             rows = cursor.fetchall()
             for row in rows:
+                row_dict = dict(row)
+                folder_id = str(row_dict["folder_id"])
+                item_id = str(row_dict["item_id"])
                 try:
-                    # 根据 client_id 和 user 查找对应的 Django 对象
-                    folder = ClipboardFolder.objects.get(
-                        user=user, client_id=row["folder_id"]
-                    )
-                    item = ClipboardData.objects.get(
-                        user=user, client_id=row["item_id"]
-                    )
-
-                    # 建立多对多关联
+                    folder = ClipboardFolder.objects.get(user=user, client_id=folder_id)
+                    item = ClipboardData.objects.get(user=user, client_id=item_id)
+                    # create if not exists
                     FolderItem.objects.get_or_create(folder=folder, item=item)
-                except (ClipboardFolder.DoesNotExist, ClipboardData.DoesNotExist):
-                    # 如果引用的文件夹或数据项不存在（可能是部分同步或数据损坏），则跳过
-                    continue
+                except ClipboardFolder.DoesNotExist:
+                    logger.debug("folder %s not found, skip folder_item", folder_id)
+                except ClipboardData.DoesNotExist:
+                    logger.debug("item %s not found, skip folder_item", item_id)
 
-            # --- D. 同步 ExtendedData 表 (ExtendedData) ---
+            # D. ExtendedData 表
             cursor.execute("SELECT * FROM extended_data")
             rows = cursor.fetchall()
             for row in rows:
+                row_dict = dict(row)
+                item_id = str(row_dict["item_id"])
+                ocr_text = row_dict.get("ocr_text") or ""
+                raw_icon = row_dict.get("icon_data")
+                icon_bytes = _ensure_bytes(raw_icon)
                 try:
-                    item = ClipboardData.objects.get(
-                        user=user, client_id=row["item_id"]
-                    )
+                    item = ClipboardData.objects.get(user=user, client_id=item_id)
                     ExtendedData.objects.update_or_create(
                         item=item,
                         defaults={
-                            "ocr_text": row["ocr_text"],
-                            "icon_data": row["icon_data"],
+                            "ocr_text": ocr_text or "New OCR",
+                            "icon_data": icon_bytes,
                         },
                     )
                 except ClipboardData.DoesNotExist:
-                    continue
+                    logger.debug(
+                        "extended_data references missing item %s, skipping", item_id
+                    )
 
     except sqlite3.Error as e:
-        # 捕获 SQLite 相关错误并抛出，以便上层 API 处理
         raise ValueError(f"SQLite 读取或同步错误: {e}")
     finally:
         if conn:
-            conn.close()
-        # 4. 清理临时文件
+            try:
+                conn.close()
+            except Exception:
+                pass
         if tmp_file_path and os.path.exists(tmp_file_path):
             try:
                 os.remove(tmp_file_path)
@@ -115,128 +163,122 @@ def download_sqlite_from_db(user):
     """
     从 Django Models 中读取数据并生成一个 SQLite 文件，返回临时文件路径。
     调用者负责在使用完后删除该临时文件。
-
-    :param user: 当前操作的用户对象 (request.user)
-    :return: tmp_file_path (str)
     """
     tmp_file_path = None
-    # 创建临时文件
     with tempfile.NamedTemporaryFile(delete=False, suffix=".sqlite") as tmp_file:
         tmp_file_path = tmp_file.name
 
     conn = None
     try:
-        # 连接到临时 SQLite 数据库
         conn = sqlite3.connect(tmp_file_path)
         cursor = conn.cursor()
-
-        # 建议关闭外键以避免插入顺序问题（写入为导出用途）
         cursor.execute("PRAGMA foreign_keys = OFF;")
 
-        # 创建表结构，使用 TEXT 类型的 id 字段以匹配 client_id (字符串)
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS data (
-                id TEXT PRIMARY KEY,
-                item_type TEXT,
-                content TEXT,
-                size INTEGER,
-                is_favorite INTEGER,
+                id TEXT PRIMARY KEY NOT NULL,
+                item_type TEXT NOT NULL,
+                content TEXT NOT NULL,
+                size INTEGER NOT NULL,
+                is_favorite INTEGER NOT NULL,
                 notes TEXT,
-                timestamp TEXT
+                timestamp INTEGER NOT NULL
             )
             """
         )
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS folders (
-                id TEXT PRIMARY KEY,
-                name TEXT,
-                num_items INTEGER
+                id TEXT PRIMARY KEY NOT NULL,
+                name TEXT NOT NULL,
+                num_items INTEGER NOT NULL DEFAULT 0
             )
             """
         )
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS folder_items (
-                folder_id TEXT,
-                item_id TEXT,
-                PRIMARY KEY (folder_id, item_id)
+                folder_id TEXT NOT NULL,
+                item_id TEXT NOT NULL,
+                PRIMARY KEY (folder_id, item_id),
+                FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE,
+                FOREIGN KEY (item_id) REFERENCES data(id) ON DELETE CASCADE
             )
             """
         )
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS extended_data (
-                item_id TEXT PRIMARY KEY,
+                item_id TEXT PRIMARY KEY NOT NULL,
                 ocr_text TEXT,
-                icon_data BLOB
+                icon_data TEXT,
+                FOREIGN KEY (item_id) REFERENCES data(id) ON DELETE CASCADE
             )
             """
         )
 
-        # 插入数据到各个表
-        # A. Data 表
+        # A. Data
         data_items = ClipboardData.objects.filter(user=user)
         for item in data_items:
             cursor.execute(
                 """
-                INSERT OR REPLACE INTO data
-                  (id, item_type, content, size, is_favorite, notes, timestamp)
+                INSERT OR REPLACE INTO data (id, item_type, content, size, is_favorite, notes, timestamp)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(item.client_id),
                     item.item_type,
                     item.content,
-                    item.size,
+                    int(item.size) if item.size is not None else 0,
                     int(bool(item.is_favorite)),
-                    item.notes,
-                    str(item.timestamp),
+                    item.notes or "",
+                    int(item.timestamp) if item.timestamp is not None else 0,
                 ),
             )
 
-        # B. Folders 表
+        # B. Folders
         folders = ClipboardFolder.objects.filter(user=user)
         for folder in folders:
             cursor.execute(
-                """
-                INSERT OR REPLACE INTO folders (id, name, num_items)
-                VALUES (?, ?, ?)
-                """,
-                (str(folder.client_id), folder.name, folder.num_items),
+                "INSERT OR REPLACE INTO folders (id, name, num_items) VALUES (?, ?, ?)",
+                (
+                    str(folder.client_id),
+                    folder.name or "",
+                    int(folder.num_items) if folder.num_items is not None else 0,
+                ),
             )
 
-        # C. FolderItems 表
+        # C. FolderItems
         folder_items = FolderItem.objects.filter(folder__user=user)
         for fi in folder_items:
-            # 使用 client_id 作为外键值
             cursor.execute(
-                """
-                INSERT OR REPLACE INTO folder_items (folder_id, item_id)
-                VALUES (?, ?)
-                """,
+                "INSERT OR REPLACE INTO folder_items (folder_id, item_id) VALUES (?, ?)",
                 (str(fi.folder.client_id), str(fi.item.client_id)),
             )
 
-        # D. ExtendedData 表
+        # D. ExtendedData
         extended_data_items = ExtendedData.objects.filter(item__user=user)
         for ed in extended_data_items:
+            icon_bytes = _ensure_bytes(ed.icon_data)
             cursor.execute(
-                """
-                INSERT OR REPLACE INTO extended_data (item_id, ocr_text, icon_data)
-                VALUES (?, ?, ?)
-                """,
-                (str(ed.item.client_id), ed.ocr_text, ed.icon_data),
+                "INSERT OR REPLACE INTO extended_data (item_id, ocr_text, icon_data) VALUES (?, ?, ?)",
+                (
+                    str(ed.item.client_id),
+                    ed.ocr_text or "",
+                    sqlite3.Binary(icon_bytes) if icon_bytes is not None else None,
+                ),
             )
 
         conn.commit()
         return tmp_file_path
 
     except sqlite3.Error as e:
-        # 清理临时文件并抛出错误供上层处理
         if conn:
-            conn.close()
+            try:
+                conn.close()
+            except Exception:
+                pass
         if tmp_file_path and os.path.exists(tmp_file_path):
             try:
                 os.remove(tmp_file_path)
@@ -246,4 +288,7 @@ def download_sqlite_from_db(user):
 
     finally:
         if conn:
-            conn.close()
+            try:
+                conn.close()
+            except Exception:
+                pass
