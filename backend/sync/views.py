@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Union
 from rest_framework import status, views, generics, permissions, parsers
 from rest_framework.response import Response
 from rest_framework.request import Request
@@ -298,7 +298,7 @@ class SqlitePullView(views.APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [permissions.IsAuthenticated]
 
-    def get(self, request: Request) -> Response:
+    def get(self, request: Request) -> Union[Response, StreamingHttpResponse]:
         try:
             # 记录导出开始
             log_security_event(
