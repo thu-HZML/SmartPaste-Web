@@ -9,7 +9,7 @@ class UserSerializer(serializers.ModelSerializer):
     """用户信息序列化器"""
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'phone', 'avatar', 'created_at']
+        fields = ['id', 'username', 'email', 'phone', 'avatar', 'created_at','bio']
         read_only_fields = ['id', 'created_at']
 
 

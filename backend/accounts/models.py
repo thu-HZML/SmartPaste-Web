@@ -12,6 +12,7 @@ class User(AbstractUser):
     phone = models.CharField(
         max_length=11, blank=True, null=True, verbose_name="telephone"
     )
+    bio = models.TextField(blank=True, null=True, verbose_name="biography")
     avatar = models.URLField(blank=True, null=True, verbose_name="avatar URL")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="created time")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="updated time")
