@@ -11,7 +11,7 @@ from utils.jwt import (
 )
 from .models import UserConfig, ClipboardFile
 from .serializers import UserConfigSerializer, ClipboardFileSerializer
-from .db import sync_sqlite_to_db, download_sqlite_from_db
+from .db import sync_sqlite_to_db, download_sqlite_from_db, get_data_from_db
 import os
 
 
@@ -368,5 +368,50 @@ class SqlitePullView(views.APIView):
             )
             return Response(
                 {"error": f"database export failed: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class SqliteGetView(views.APIView):
+    """
+    GET: 获取当前用户的 SQLite 数据库文件内容，并返回json格式的数据
+    需携带 JWT Token 进行鉴权
+    """
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request: Request) -> Response:
+        try:
+            # 记录获取开始
+            log_security_event(
+                "sqlite_get_start",
+                username=request.user.username,
+                ip_address=get_client_ip(request),
+            )
+
+            user_data = get_data_from_db(request.user)
+            # 记录获取成功
+            log_security_event(
+                "sqlite_get_success",
+                username=request.user.username,
+                ip_address=get_client_ip(request),
+            )
+            return Response(
+                {
+                    "message": "database data retrieval successful",
+                    "data": user_data,
+                },
+                status=status.HTTP_200_OK,
+            )
+        except Exception as e:
+            log_security_event(
+                "sqlite_get_error",
+                username=request.user.username,
+                ip_address=get_client_ip(request),
+                details=str(e),
+            )
+            return Response(
+                {"error": f"database data retrieval failed: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
