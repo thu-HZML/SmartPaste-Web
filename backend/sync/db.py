@@ -292,3 +292,66 @@ def download_sqlite_from_db(user):
                 conn.close()
             except Exception:
                 pass
+
+
+def get_data_from_db(user):
+    """
+    从 Django Models 中读取全部用户相关数据并返回一个包含这些数据的json对象。
+    """
+    user_data = {
+        "data": [],
+        "folders": [],
+        "folder_items": [],
+        "extended_data": [],
+    }
+
+    # A. Data
+    data_items = ClipboardData.objects.filter(user=user)
+    for item in data_items:
+        user_data["data"].append(
+            {
+                "id": str(item.client_id),
+                "item_type": item.item_type,
+                "content": item.content,
+                "size": int(item.size) if item.size is not None else 0,
+                "is_favorite": bool(item.is_favorite),
+                "notes": item.notes or "",
+                "timestamp": int(item.timestamp) if item.timestamp is not None else 0,
+            }
+        )
+
+    # B. Folders
+    folders = ClipboardFolder.objects.filter(user=user)
+    for folder in folders:
+        user_data["folders"].append(
+            {
+                "id": str(folder.client_id),
+                "name": folder.name or "",
+                "num_items": int(folder.num_items)
+                if folder.num_items is not None
+                else 0,
+            }
+        )
+
+    # C. FolderItems
+    folder_items = FolderItem.objects.filter(folder__user=user)
+    for fi in folder_items:
+        user_data["folder_items"].append(
+            {
+                "folder_id": str(fi.folder.client_id),
+                "item_id": str(fi.item.client_id),
+            }
+        )
+
+    # D. ExtendedData
+    extended_data_items = ExtendedData.objects.filter(item__user=user)
+    for ed in extended_data_items:
+        icon_bytes = _ensure_bytes(ed.icon_data)
+        user_data["extended_data"].append(
+            {
+                "item_id": str(ed.item.client_id),
+                "ocr_text": ed.ocr_text or "",
+                "icon_data": icon_bytes,
+            }
+        )
+    return user_data

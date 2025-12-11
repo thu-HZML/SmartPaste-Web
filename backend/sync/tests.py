@@ -7,7 +7,7 @@ from django.test import TestCase
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from .models import ClipboardData, ClipboardFolder, FolderItem, ExtendedData
-from .db import sync_sqlite_to_db, download_sqlite_from_db
+from .db import sync_sqlite_to_db, download_sqlite_from_db, get_data_from_db
 
 
 User = get_user_model()
@@ -17,7 +17,9 @@ class SyncDBTests(TestCase):
     def setUp(self):
         """在每个测试开始前，创建测试用户和一些初始数据。"""
         self.user = User.objects.create_user(
-            username="testuser", password="testpassword"
+            username="testuser",
+            email="testuser@test.com",  # 添加 email
+            password="testpassword",
         )
         # 使用 UTC epoch seconds 作为 timestamp（符合模型的数字类型）
         ts1 = int(
@@ -230,3 +232,148 @@ class SyncDBTests(TestCase):
         finally:
             if tmp_file_path and os.path.exists(tmp_file_path):
                 os.remove(tmp_file_path)
+
+    def test_get_data_from_db(self):
+        """测试从 Django Models 获取用户数据的 JSON 格式。"""
+        user_data = get_data_from_db(self.user)
+
+        # 验证返回的数据结构
+        self.assertIn("data", user_data)
+        self.assertIn("folders", user_data)
+        self.assertIn("folder_items", user_data)
+        self.assertIn("extended_data", user_data)
+        self.assertIsInstance(user_data["data"], list)
+        self.assertIsInstance(user_data["folders"], list)
+        self.assertIsInstance(user_data["folder_items"], list)
+        self.assertIsInstance(user_data["extended_data"], list)
+
+        # 验证 data 数据
+        self.assertEqual(len(user_data["data"]), 2)
+        # 找到对应的数据项
+        data_item1 = next(
+            (item for item in user_data["data"] if item["id"] == "item-1"), None
+        )
+        self.assertIsNotNone(data_item1)
+        self.assertEqual(data_item1["content"], "Hello")
+        self.assertEqual(data_item1["item_type"], "text/plain")
+        self.assertEqual(data_item1["size"], 5)
+        self.assertTrue(data_item1["is_favorite"])
+        self.assertEqual(data_item1["notes"], "A note")
+        self.assertIsInstance(data_item1["timestamp"], int)
+
+        data_item2 = next(
+            (item for item in user_data["data"] if item["id"] == "item-2"), None
+        )
+        self.assertIsNotNone(data_item2)
+        self.assertEqual(data_item2["item_type"], "image/png")
+        self.assertFalse(data_item2["is_favorite"])
+
+        # 验证 folders 数据
+        self.assertEqual(len(user_data["folders"]), 1)
+        folder = user_data["folders"][0]
+        self.assertEqual(folder["id"], "folder-1")
+        self.assertEqual(folder["name"], "My Folder")
+        self.assertEqual(folder["num_items"], 1)
+
+        # 验证 folder_items 数据
+        self.assertEqual(len(user_data["folder_items"]), 1)
+        folder_item = user_data["folder_items"][0]
+        self.assertEqual(folder_item["folder_id"], "folder-1")
+        self.assertEqual(folder_item["item_id"], "item-1")
+
+        # 验证 extended_data 数据
+        self.assertEqual(len(user_data["extended_data"]), 1)
+        extended = user_data["extended_data"][0]
+        self.assertEqual(extended["item_id"], "item-1")
+        self.assertEqual(extended["ocr_text"], "OCR Text")
+        self.assertEqual(extended["icon_data"], b"\x01\x02\x03")
+
+    def test_get_data_from_db_empty_user(self):
+        """测试获取没有数据的用户的数据。"""
+        empty_user = User.objects.create_user(
+            username="emptyuser",
+            email="emptyuser@test.com",  # 添加唯一 email
+            password="testpassword",
+        )
+        user_data = get_data_from_db(empty_user)
+
+        # 验证返回空列表
+        self.assertEqual(len(user_data["data"]), 0)
+        self.assertEqual(len(user_data["folders"]), 0)
+        self.assertEqual(len(user_data["folder_items"]), 0)
+        self.assertEqual(len(user_data["extended_data"]), 0)
+
+        # 验证数据结构完整
+        self.assertIn("data", user_data)
+        self.assertIn("folders", user_data)
+        self.assertIn("folder_items", user_data)
+        self.assertIn("extended_data", user_data)
+
+    def test_get_data_from_db_data_types(self):
+        """测试返回数据的类型正确性。"""
+        user_data = get_data_from_db(self.user)
+
+        # 验证 data 字段类型
+        for item in user_data["data"]:
+            self.assertIsInstance(item["id"], str)
+            self.assertIsInstance(item["item_type"], str)
+            self.assertIsInstance(item["content"], str)
+            self.assertIsInstance(item["size"], int)
+            self.assertIsInstance(item["is_favorite"], bool)
+            self.assertIsInstance(item["notes"], str)
+            self.assertIsInstance(item["timestamp"], int)
+
+        # 验证 folders 字段类型
+        for folder in user_data["folders"]:
+            self.assertIsInstance(folder["id"], str)
+            self.assertIsInstance(folder["name"], str)
+            self.assertIsInstance(folder["num_items"], int)
+
+        # 验证 folder_items 字段类型
+        for fi in user_data["folder_items"]:
+            self.assertIsInstance(fi["folder_id"], str)
+            self.assertIsInstance(fi["item_id"], str)
+
+        # 验证 extended_data 字段类型
+        for ed in user_data["extended_data"]:
+            self.assertIsInstance(ed["item_id"], str)
+            self.assertIsInstance(ed["ocr_text"], str)
+            self.assertTrue(isinstance(ed["icon_data"], (bytes, type(None))))
+
+    def test_get_data_from_db_user_isolation(self):
+        """测试数据用户隔离性，确保只返回指定用户的数据。"""
+        # 创建另一个用户及其数据
+        other_user = User.objects.create_user(
+            username="otheruser",
+            email="otheruser@test.com",  # 添加唯一 email
+            password="testpassword",
+        )
+        ts = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+        ClipboardData.objects.create(
+            user=other_user,
+            client_id="other-item-1",
+            item_type="text/plain",
+            content="Other Content",
+            size=10,
+            timestamp=ts,
+        )
+        ClipboardFolder.objects.create(
+            user=other_user,
+            client_id="other-folder-1",
+            name="Other Folder",
+            num_items=0,
+        )
+
+        # 获取第一个用户的数据
+        user_data = get_data_from_db(self.user)
+
+        # 确保不包含其他用户的数据
+        data_ids = [item["id"] for item in user_data["data"]]
+        self.assertNotIn("other-item-1", data_ids)
+
+        folder_ids = [folder["id"] for folder in user_data["folders"]]
+        self.assertNotIn("other-folder-1", folder_ids)
+
+        # 确保包含正确的数据数量
+        self.assertEqual(len(user_data["data"]), 2)
+        self.assertEqual(len(user_data["folders"]), 1)
