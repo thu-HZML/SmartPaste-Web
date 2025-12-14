@@ -317,3 +317,46 @@ class ChangePasswordView(APIView):
                 },
                 status=status.HTTP_200_OK,
             )
+# 在 views.py 文件末尾添加以下代码
+
+class DeleteAccountView(APIView):
+    """
+    用户注销（物理删除）API视图
+    Endpoint: DELETE /api/accounts/delete/
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def delete(self, request: Request) -> Response:
+        user = request.user
+        username = user.username
+        ip_address = get_client_ip(request)
+
+        try:
+            # 记录日志
+            log_security_event(
+                "account_deleted", 
+                username=username, 
+                ip_address=ip_address,
+                details="User initiated account deletion"
+            )
+
+            # 执行删除
+            user.delete()
+
+            # --- 修改重点在这里 ---
+            # 改用 200 OK，这样 Apifox 就能收到 JSON 数据了
+            return Response(
+                {
+                    "message": "账号已注销成功",
+                    "username": username
+                }, 
+                status=status.HTTP_200_OK
+            )
+            # ---------------------
+
+        except Exception as e:
+            logger.error(f"Error deleting user {username}: {str(e)}")
+            return Response(
+                {"error": "注销失败，请稍后重试"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
