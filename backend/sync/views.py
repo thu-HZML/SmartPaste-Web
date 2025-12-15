@@ -228,10 +228,17 @@ class SqlitePushView(views.APIView):
     def post(self, request: Request) -> Response:
         """接收 SQLite 文件并执行同步"""
         try:
-            file_obj = request.FILES.get("file")
+            # 尝试获取 'file' 或 'db_file' 以兼容不同的客户端命名
+            file_obj = request.FILES.get("db_file")
+
             if not file_obj:
+                # 修改此处：返回实际接收到的 keys，方便调试
+                received_keys = list(request.FILES.keys())
                 return Response(
-                    {"error": "no database file provided"},
+                    {
+                        "error": "no database file provided",
+                        "detail": f"Expected form-data key 'db_file', but received: {received_keys}",
+                    },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 

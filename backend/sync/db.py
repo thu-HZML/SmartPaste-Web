@@ -53,6 +53,15 @@ def sync_sqlite_to_db(user, uploaded_file):
         cursor = conn.cursor()
 
         with transaction.atomic():
+            # 0. 获取隐私数据 ID
+            private_ids = set()
+            try:
+                cursor.execute("SELECT item_id FROM private_data")
+                for r in cursor.fetchall():
+                    private_ids.add(str(r["item_id"]))
+            except sqlite3.OperationalError:
+                pass
+
             # A. Data 表
             cursor.execute("SELECT * FROM data")
             rows = cursor.fetchall()
@@ -60,6 +69,9 @@ def sync_sqlite_to_db(user, uploaded_file):
                 # 将 sqlite3.Row 转换为 dict，以便使用 .get() 方法
                 row_dict = dict(row)
                 client_id = str(row_dict["id"])
+                if client_id in private_ids:
+                    continue
+
                 timestamp = row_dict.get("timestamp")
                 try:
                     timestamp = int(timestamp) if timestamp is not None else None
@@ -111,6 +123,9 @@ def sync_sqlite_to_db(user, uploaded_file):
                 row_dict = dict(row)
                 folder_id = str(row_dict["folder_id"])
                 item_id = str(row_dict["item_id"])
+                if item_id in private_ids:
+                    continue
+
                 try:
                     folder = ClipboardFolder.objects.get(user=user, client_id=folder_id)
                     item = ClipboardData.objects.get(user=user, client_id=item_id)
@@ -127,6 +142,9 @@ def sync_sqlite_to_db(user, uploaded_file):
             for row in rows:
                 row_dict = dict(row)
                 item_id = str(row_dict["item_id"])
+                if item_id in private_ids:
+                    continue
+
                 ocr_text = row_dict.get("ocr_text") or ""
                 raw_icon = row_dict.get("icon_data")
                 icon_bytes = _ensure_bytes(raw_icon)

@@ -121,6 +121,10 @@ class SyncDBTests(TestCase):
         cursor.execute(
             "CREATE TABLE extended_data (item_id TEXT PRIMARY KEY NOT NULL, ocr_text TEXT, icon_data TEXT, FOREIGN KEY (item_id) REFERENCES data(id) ON DELETE CASCADE)"
         )
+        # 新增 private_data 表
+        cursor.execute(
+            "CREATE TABLE private_data (item_id TEXT PRIMARY KEY NOT NULL, FOREIGN KEY (item_id) REFERENCES data(id) ON DELETE CASCADE)"
+        )
 
         # 插入数据（timestamp 使用整数 epoch）
         ts_new = int(
@@ -151,6 +155,28 @@ class SyncDBTests(TestCase):
             ("new-item-1", "New OCR", b"\x04\x05\x06"),
         )
 
+        # 插入隐私数据
+        cursor.execute(
+            "INSERT INTO data VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                "private-item-1",
+                "text/plain",
+                "Private Content",
+                15,
+                0,
+                "Private Note",
+                ts_new,
+            ),
+        )
+        cursor.execute("INSERT INTO private_data VALUES (?)", ("private-item-1",))
+        cursor.execute(
+            "INSERT INTO folder_items VALUES (?, ?)", ("new-folder-1", "private-item-1")
+        )
+        cursor.execute(
+            "INSERT INTO extended_data VALUES (?, ?, ?)",
+            ("private-item-1", "Private OCR", b"\x07\x08\x09"),
+        )
+
         conn.commit()
         conn.close()
         return tmp_file_path
@@ -165,6 +191,9 @@ class SyncDBTests(TestCase):
             # 在同步前，新数据不应存在
             self.assertFalse(
                 ClipboardData.objects.filter(client_id="new-item-1").exists()
+            )
+            self.assertFalse(
+                ClipboardData.objects.filter(client_id="private-item-1").exists()
             )
 
             # 执行同步
@@ -187,6 +216,11 @@ class SyncDBTests(TestCase):
 
             ext_data = ExtendedData.objects.get(item=new_item)
             self.assertEqual(ext_data.ocr_text, "New OCR")
+
+            # 验证隐私数据未同步
+            self.assertFalse(
+                ClipboardData.objects.filter(client_id="private-item-1").exists()
+            )
 
         finally:
             if os.path.exists(tmp_file_path):
