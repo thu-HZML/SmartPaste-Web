@@ -3,6 +3,7 @@ from rest_framework import status, generics, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.request import Request
+from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.models import AbstractUser
@@ -17,6 +18,7 @@ from .serializers import (
     RegisterSerializer,
     LoginSerializer,
     ChangePasswordSerializer,
+    AvatarUploadSerializer, 
 )
 import logging
 
@@ -360,3 +362,32 @@ class DeleteAccountView(APIView):
                 {"error": "注销失败，请稍后重试"}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class UpdateAvatarView(APIView):
+    """
+    用户头像上传/更新 API
+    
+    Endpoint: POST /api/accounts/avatar/
+    Permission: IsAuthenticated
+    Content-Type: multipart/form-data
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser] # 关键：允许解析文件上传
+
+    def post(self, request: Request) -> Response:
+        user = request.user
+        serializer = AvatarUploadSerializer(user, data=request.data)
+        
+        if serializer.is_valid():
+            serializer.save()
+            
+            # 获取最新的用户信息以便返回完整的 avatar URL
+            user_data = UserSerializer(user, context={'request': request}).data
+            
+            return Response({
+                "message": "头像更新成功",
+                "avatar": user_data['avatar'] # 返回新的图片URL给前端展示
+            }, status=status.HTTP_200_OK)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

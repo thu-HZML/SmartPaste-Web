@@ -7,11 +7,13 @@ User = get_user_model()
 
 class UserSerializer(serializers.ModelSerializer):
     """用户信息序列化器"""
+    # 显式声明 avatar，确保返回绝对路径 (http://domain.com/media/...)
+    avatar = serializers.ImageField(read_only=True, use_url=True)
+
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'phone', 'avatar', 'created_at','bio']
+        fields = ['id', 'username', 'email', 'phone', 'avatar', 'created_at', 'bio']
         read_only_fields = ['id', 'created_at']
-
 
 class RegisterSerializer(serializers.ModelSerializer):
     """用户注册序列化器"""
@@ -80,3 +82,18 @@ class ChangePasswordSerializer(serializers.Serializer):
         if attrs['new_password'] != attrs['new_password2']:
             raise serializers.ValidationError({"new_password": "两次密码不一致"})
         return attrs
+class AvatarUploadSerializer(serializers.ModelSerializer):
+    """
+    专门用于上传头像的序列化器
+    """
+    avatar = serializers.ImageField(required=True)
+
+    class Meta:
+        model = User
+        fields = ['avatar']
+
+    def update(self, instance, validated_data):
+        # 这里的逻辑很简单，就是覆盖原有的 avatar
+        instance.avatar = validated_data['avatar']
+        instance.save()
+        return instance
