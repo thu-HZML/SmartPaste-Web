@@ -57,7 +57,10 @@ INSTALLED_APPS = [
     "accounts",
     "sync",
     "tools",
+    "ai_assistant",
 ]
+DEEPSEEK_API_KEY = "sk-OPQwD82A_5CNpMkW7i7zsQ" 
+DEEPSEEK_BASE_URL = "https://llmapi.paratera.com/v1"
 
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",  # 本地测试，确保可以实现跨域访问
