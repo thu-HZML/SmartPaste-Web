@@ -18,7 +18,7 @@ from .serializers import (
     RegisterSerializer,
     LoginSerializer,
     ChangePasswordSerializer,
-    AvatarUploadSerializer, 
+    AvatarUploadSerializer,
 )
 import logging
 
@@ -120,48 +120,48 @@ class LoginView(APIView):
         if user is not None and user.is_active:
             logger.debug(f"User authenticated: {username}, creating tokens")
             # 获取或创建Django Token（向后兼容）
-            token, _ = Token.objects.get_or_create(user=user)
+            # token, _ = Token.objects.get_or_create(user=user)
 
-            try:
-                # 生成JWT令牌对
-                jwt_tokens: Dict[str, Any] = create_jwt_for_user(user)
+            # try:
+            # 生成JWT令牌对
+            jwt_tokens: Dict[str, Any] = create_jwt_for_user(user)
 
-                # 记录成功登录事件
-                log_security_event(
-                    "user_login",
-                    username=user.username,
-                    ip_address=ip_address,
-                    user_agent=user_agent,
-                )
+            # 记录成功登录事件
+            log_security_event(
+                "user_login",
+                username=user.username,
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
 
-                return Response(
-                    {
-                        "user": UserSerializer(user).data,
-                        "token": token.key,  # Django Token（兼容性）
-                        "jwt": jwt_tokens,  # JWT令牌对（推荐）
-                        "message": "login successful",
-                    },
-                    status=status.HTTP_200_OK,
-                )
+            return Response(
+                {
+                    "user": UserSerializer(user).data,
+                    # "token": token.key,  # Django Token（兼容性）
+                    "jwt": jwt_tokens,  # JWT令牌对（推荐）
+                    "message": "login successful",
+                },
+                status=status.HTTP_200_OK,
+            )
 
-            except Exception as e:
-                # JWT创建失败时的降级处理
-                log_security_event(
-                    "jwt_creation_failed",
-                    username=user.username,
-                    ip_address=ip_address,
-                    details=str(e),
-                )
+            # except Exception as e:
+            #     # JWT创建失败时的降级处理
+            #     log_security_event(
+            #         "jwt_creation_failed",
+            #         username=user.username,
+            #         ip_address=ip_address,
+            #         details=str(e),
+            #     )
 
-                return Response(
-                    {
-                        "user": UserSerializer(user).data,
-                        "token": token.key,
-                        "message": "登录成功（使用Token认证）",
-                        "warning": "JWT创建失败，使用Token认证",
-                    },
-                    status=status.HTTP_200_OK,
-                )
+            #     return Response(
+            #         {
+            #             "user": UserSerializer(user).data,
+            #             "token": token.key,
+            #             "message": "登录成功（使用Token认证）",
+            #             "warning": "JWT创建失败，使用Token认证",
+            #         },
+            #         status=status.HTTP_200_OK,
+            #     )
         else:
             # 登录失败
             logger.warning(f"Login failed for user: {username}")
@@ -319,13 +319,17 @@ class ChangePasswordView(APIView):
                 },
                 status=status.HTTP_200_OK,
             )
+
+
 # 在 views.py 文件末尾添加以下代码
+
 
 class DeleteAccountView(APIView):
     """
     用户注销（物理删除）API视图
     Endpoint: DELETE /api/accounts/delete/
     """
+
     permission_classes = [permissions.IsAuthenticated]
 
     def delete(self, request: Request) -> Response:
@@ -336,10 +340,10 @@ class DeleteAccountView(APIView):
         try:
             # 记录日志
             log_security_event(
-                "account_deleted", 
-                username=username, 
+                "account_deleted",
+                username=username,
                 ip_address=ip_address,
-                details="User initiated account deletion"
+                details="User initiated account deletion",
             )
 
             # 执行删除
@@ -348,46 +352,47 @@ class DeleteAccountView(APIView):
             # --- 修改重点在这里 ---
             # 改用 200 OK，这样 Apifox 就能收到 JSON 数据了
             return Response(
-                {
-                    "message": "账号已注销成功",
-                    "username": username
-                }, 
-                status=status.HTTP_200_OK
+                {"message": "账号已注销成功", "username": username},
+                status=status.HTTP_200_OK,
             )
             # ---------------------
 
         except Exception as e:
             logger.error(f"Error deleting user {username}: {str(e)}")
             return Response(
-                {"error": "注销失败，请稍后重试"}, 
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {"error": "注销失败，请稍后重试"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
 
 class UpdateAvatarView(APIView):
     """
     用户头像上传/更新 API
-    
+
     Endpoint: POST /api/accounts/avatar/
     Permission: IsAuthenticated
     Content-Type: multipart/form-data
     """
+
     permission_classes = [permissions.IsAuthenticated]
-    parser_classes = [MultiPartParser, FormParser] # 关键：允许解析文件上传
+    parser_classes = [MultiPartParser, FormParser]  # 关键：允许解析文件上传
 
     def post(self, request: Request) -> Response:
         user = request.user
         serializer = AvatarUploadSerializer(user, data=request.data)
-        
+
         if serializer.is_valid():
             serializer.save()
-            
+
             # 获取最新的用户信息以便返回完整的 avatar URL
-            user_data = UserSerializer(user, context={'request': request}).data
-            
-            return Response({
-                "message": "头像更新成功",
-                "avatar": user_data['avatar'] # 返回新的图片URL给前端展示
-            }, status=status.HTTP_200_OK)
-        
+            user_data = UserSerializer(user, context={"request": request}).data
+
+            return Response(
+                {
+                    "message": "头像更新成功",
+                    "avatar": user_data["avatar"],  # 返回新的图片URL给前端展示
+                },
+                status=status.HTTP_200_OK,
+            )
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
