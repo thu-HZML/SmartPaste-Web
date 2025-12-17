@@ -32,9 +32,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = "django-insecure-csn4hiy_nk_q2ylcla2t&)56&ih)$vuyrsjl$^+=s)x5%0pv9e"
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
-
-ALLOWED_HOSTS = ["*"]
+DEBUG = os.environ.get("DJANGO_DEBUG", "False") == "True"
+ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "*").split(",")
 
 
 # Application definition
@@ -67,7 +66,6 @@ MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",  # 本地测试，确保可以实现跨域访问
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
-    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -210,17 +208,32 @@ REST_FRAMEWORK = {
 }
 
 # CORS Settings
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",  # React 默认端口
-    "http://localhost:5173",  # Vite 默认端口
-    "http://localhost:8080",  # Vue 默认端口
-]
+CORS_ALLOW_ALL_ORIGINS = os.environ.get("CORS_ALLOW_ALL_ORIGINS", "False") == "True"
 
-CORS_ALLOW_CREDENTIALS = True
+# 2. 如果没有开启"允许所有"，则使用白名单
+if not CORS_ALLOW_ALL_ORIGINS:
+    # 默认保留本地开发端口
+    default_origins = [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://localhost:8080",
+        "http://127.0.0.1:3000",
+    ]
+    
+    # 从环境变量获取额外的允许列表（服务器IP或域名）
+    # 在 docker-compose 中配置，用逗号分隔
+    env_origins = os.environ.get("CORS_ALLOWED_ORIGINS", "")
+    if env_origins:
+        default_origins.extend(env_origins.split(","))
+    
+    CORS_ALLOWED_ORIGINS = default_origins
+    
+    # 允许携带 Cookie/凭证
+    CORS_ALLOW_CREDENTIALS = True
 
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = "static/"
-
+STATIC_ROOT = BASE_DIR / "static"
 # Media files (User uploaded files)
 MEDIA_URL = "/media/"
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
