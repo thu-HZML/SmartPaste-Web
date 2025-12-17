@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -59,8 +60,8 @@ INSTALLED_APPS = [
     "tools",
     "ai_assistant",
 ]
-DEEPSEEK_API_KEY = "sk-OPQwD82A_5CNpMkW7i7zsQ" 
-DEEPSEEK_BASE_URL = "https://llmapi.paratera.com/v1"
+DEFAULT_API_KEY = os.environ.get("DEFAULT_API_KEY")
+DEFAULT_BASE_URL = os.environ.get("DEFAULT_BASE_URL")
 
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",  # 本地测试，确保可以实现跨域访问
@@ -142,7 +143,6 @@ DATABASES = {
 # --- Test Database Configuration ---
 # If running tests, use an in-memory SQLite database to speed up tests
 # and avoid permission issues with the main database.
-import sys
 
 if "test" in sys.argv:
     DATABASES = {
