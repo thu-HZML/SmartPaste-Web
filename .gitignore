@@ -7,3 +7,9 @@ local_settings.py
 **/migrations/*.py
 
 # Document
+
+# VSCode
+.vscode/
+
+# Database
+*.sqlite3

@@ -10,7 +10,16 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
+import os
+import sys
 from pathlib import Path
+from dotenv import load_dotenv
+
+# JWT Configuration
+from datetime import timedelta
+
+# 加载环境变量
+load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -20,12 +29,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-joa!!a%&!m5&9@a2chu(_-)xs-cwb^1=37scke#@9w#en^5sgc"
+SECRET_KEY = "django-insecure-csn4hiy_nk_q2ylcla2t&)56&ih)$vuyrsjl$^+=s)x5%0pv9e"
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
-
-ALLOWED_HOSTS = []
+DEBUG = os.environ.get("DJANGO_DEBUG", "False") == "True"
+ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "*").split(",")
 
 
 # Application definition
@@ -37,9 +45,25 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    # Third party apps
+    "rest_framework",
+    # Token Authentication
+    "rest_framework.authtoken",
+    # JWT Authentication
+    "rest_framework_simplejwt",
+    "rest_framework_simplejwt.token_blacklist",
+    "corsheaders",
+    # Local apps
+    "accounts",
+    "sync",
+    "tools",
+    "ai_assistant",
 ]
+DEFAULT_API_KEY = os.environ.get("DEFAULT_API_KEY")
+DEFAULT_BASE_URL = os.environ.get("DEFAULT_BASE_URL")
 
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",  # 本地测试，确保可以实现跨域访问
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -48,6 +72,12 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+
+# CORS 配置
+CORS_ALLOW_ALL_ORIGINS = (
+    True  # 开发环境可以这样设置，以实现跨域请求，生产环境请配置具体域名
+)
 
 ROOT_URLCONF = "app.urls"
 
@@ -73,13 +103,52 @@ WSGI_APPLICATION = "app.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-    }
+# 获取数据库选择配置
+DEFAULT_DB_TYPE = os.environ.get("DEFAULT_DATABASE", "mysql").lower()
+
+# MySQL数据库配置
+MYSQL_CONFIG = {
+    "ENGINE": "django.db.backends.mysql",
+    "NAME": os.environ.get("MYSQL_DATABASE", "smartpaste_db"),
+    "USER": os.environ.get("MYSQL_USER", "smartpaste_user"),
+    "PASSWORD": os.environ.get("MYSQL_PASSWORD", "smartpaste_pass"),
+    "HOST": os.environ.get("MYSQL_HOST", "localhost"),
+    "PORT": os.environ.get("MYSQL_PORT", "3306"),
+    "OPTIONS": {
+        "charset": "utf8mb4",
+        "init_command": "SET sql_mode='STRICT_TRANS_TABLES'",
+    },
 }
 
+# SQLite数据库配置
+SQLITE_CONFIG = {
+    "ENGINE": "django.db.backends.sqlite3",
+    "NAME": BASE_DIR / "db.sqlite3",
+}
+
+# 动态数据库配置
+DATABASES = {
+    # 根据环境变量选择默认数据库
+    "default": MYSQL_CONFIG if DEFAULT_DB_TYPE == "mysql" else SQLITE_CONFIG,
+    # MySQL数据库（总是可用）
+    "mysql": MYSQL_CONFIG,
+    # SQLite数据库（总是可用）
+    "sqlite": SQLITE_CONFIG,
+    # 云端同步数据库（指向MySQL）
+    "cloud_mysql": MYSQL_CONFIG,
+}
+
+# --- Test Database Configuration ---
+# If running tests, use an in-memory SQLite database to speed up tests
+# and avoid permission issues with the main database.
+
+if "test" in sys.argv:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": ":memory:",
+        }
+    }
 
 # Password validation
 # https://docs.djangoproject.com/en/4.2/ref/settings/#auth-password-validators
@@ -121,3 +190,115 @@ STATIC_URL = "static/"
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Custom User Model
+AUTH_USER_MODEL = "accounts.User"
+
+# Django REST Framework
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework_simplejwt.authentication.JWTAuthentication",  # 使用标准JWT认证
+        "rest_framework.authentication.TokenAuthentication",  # 向后兼容Django Token认证
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 10,
+}
+
+# CORS Settings
+CORS_ALLOW_ALL_ORIGINS = os.environ.get("CORS_ALLOW_ALL_ORIGINS", "False") == "True"
+
+# 2. 如果没有开启"允许所有"，则使用白名单
+if not CORS_ALLOW_ALL_ORIGINS:
+    # 默认保留本地开发端口
+    default_origins = [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://localhost:8080",
+        "http://127.0.0.1:3000",
+    ]
+    
+    # 从环境变量获取额外的允许列表（服务器IP或域名）
+    # 在 docker-compose 中配置，用逗号分隔
+    env_origins = os.environ.get("CORS_ALLOWED_ORIGINS", "")
+    if env_origins:
+        default_origins.extend(env_origins.split(","))
+    
+    CORS_ALLOWED_ORIGINS = default_origins
+    
+    # 允许携带 Cookie/凭证
+    CORS_ALLOW_CREDENTIALS = True
+
+# Static files (CSS, JavaScript, Images)
+STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "static"
+# Media files (User uploaded files)
+MEDIA_URL = "/media/"
+MEDIA_ROOT = os.path.join(BASE_DIR, "media")
+
+# JWT Settings
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=24),  # 访问令牌24小时
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),  # 刷新令牌7天
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+    "UPDATE_LAST_LOGIN": True,
+    "ALGORITHM": "HS256",
+    "SIGNING_KEY": SECRET_KEY,
+    "VERIFYING_KEY": None,
+    "AUDIENCE": None,
+    "ISSUER": "SmartPaste-Web",
+    "JWK_URL": None,
+    "LEEWAY": 0,
+    "AUTH_HEADER_TYPES": ("Bearer",),
+    "AUTH_HEADER_NAME": "HTTP_AUTHORIZATION",
+    "USER_ID_FIELD": "id",
+    "USER_ID_CLAIM": "user_id",
+    "USER_AUTHENTICATION_RULE": "rest_framework_simplejwt.authentication.default_user_authentication_rule",
+    "AUTH_TOKEN_CLASSES": ("rest_framework_simplejwt.tokens.AccessToken",),
+    "TOKEN_TYPE_CLAIM": "token_type",
+    "TOKEN_USER_CLASS": "rest_framework_simplejwt.models.TokenUser",
+    "JTI_CLAIM": "jti",
+}
+
+# Custom JWT Settings
+JWT_SECRET = SECRET_KEY
+JWT_EXPIRE_HOURS = 24  # JWT有效期小时数
+SALT = SECRET_KEY[:16].encode("utf-8")  # 密码加盐
+
+# log settings
+LOG_DIR = BASE_DIR / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "simple": {"format": "%(asctime)s %(levelname)s %(name)s: %(message)s"},
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "simple",
+            "level": "DEBUG",
+        },
+        "file": {
+            "class": "logging.FileHandler",
+            "filename": "logs/smartpaste.log",
+            "formatter": "simple",
+            "level": "INFO",
+        },
+    },
+    "loggers": {
+        "utils.jwt": {
+            "handlers": ["file", "console"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+    },
+    "root": {
+        "handlers": ["console", "file"],
+        "level": "DEBUG",
+    },
+}
