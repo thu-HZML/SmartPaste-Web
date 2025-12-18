@@ -158,11 +158,6 @@ class ChatWithClipboardView(views.APIView):
                             # 使用 JSON 封装以避免特殊字符导致前端解析错误
                             payload = json.dumps({"type": "delta", "content": content})
                             yield f"data: {payload}\n\n"
-                        
-                        # (可选) 处理结束时的 Usage 信息
-                        if getattr(chunk, 'usage', None):
-                             payload = json.dumps({"type": "usage", "usage": chunk.usage.model_dump()})
-                             yield f"data: {payload}\n\n"
 
                     # 发送结束标记
                     yield "data: [DONE]\n\n"
