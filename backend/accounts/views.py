@@ -19,6 +19,7 @@ from .serializers import (
     LoginSerializer,
     ChangePasswordSerializer,
     AvatarUploadSerializer,
+    EncryptionKeySerializer,
 )
 import logging
 
@@ -395,4 +396,38 @@ class UpdateAvatarView(APIView):
                 status=status.HTTP_200_OK,
             )
 
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class EncryptionKeyView(APIView):
+    """
+    E2EE 密钥管理 API
+
+    GET: 获取当前用户的加密配置 (Salt, Encrypted DEK)
+    POST: 更新加密配置 (通常在注册、修改密码或首次启用 E2EE 时)
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        if not user.kdf_salt or not user.encrypted_dek:
+            return Response({"success": True, "data": {"has_keys": False}})
+
+        data = {
+            "has_keys": True,
+            "kdf_salt": user.kdf_salt,
+            "encrypted_dek": user.encrypted_dek,
+            "kdf_iterations": user.kdf_iterations,
+            "kdf_algorithm": user.kdf_algorithm,
+        }
+        return Response({"success": True, "data": data})
+
+    def post(self, request):
+        user = request.user
+        # partial=True 允许只更新部分字段
+        serializer = EncryptionKeySerializer(user, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"success": True, "message": "加密密钥已更新"})
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
