@@ -4,9 +4,19 @@ import tempfile
 import datetime
 import ast
 from django.test import TestCase
+from rest_framework.test import APITestCase
+from rest_framework import status
+from django.urls import reverse
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-from .models import ClipboardData, ClipboardFolder, FolderItem, ExtendedData
+from .models import (
+    ClipboardData,
+    ClipboardFolder,
+    FolderItem,
+    ExtendedData,
+    UserConfig,
+    ClipboardFile,
+)
 from .db import sync_sqlite_to_db, download_sqlite_from_db, get_data_from_db
 
 
