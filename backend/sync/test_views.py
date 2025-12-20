@@ -118,3 +118,58 @@ class SyncAPITests(APITestCase):
         self.assertTrue(ClipboardData.objects.filter(client_id="item1").exists())
 
         os.unlink(tmp.name)
+
+    def test_sqlite_push_invalid_file(self):
+        """Test sqlite push with invalid file"""
+        url = reverse("sync:push-sqlite")
+
+        # No file
+        response = self.client.post(url, {}, format="multipart")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Invalid file content
+        invalid_file = SimpleUploadedFile(
+            "db.sqlite", b"not a sqlite file", content_type="application/x-sqlite3"
+        )
+        response = self.client.post(url, {"db_file": invalid_file}, format="multipart")
+        self.assertIn(
+            response.status_code,
+            [status.HTTP_400_BAD_REQUEST, status.HTTP_500_INTERNAL_SERVER_ERROR],
+        )
+
+    def test_file_upload_overwrite(self):
+        """Test file upload overwrite logic"""
+        upload_url = reverse("sync:file-upload")
+
+        # Upload first time
+        file_obj1 = SimpleUploadedFile(
+            "test.txt", b"content 1", content_type="text/plain"
+        )
+        response1 = self.client.post(
+            upload_url,
+            {"file": file_obj1, "relative_path": "test.txt"},
+            format="multipart",
+        )
+        self.assertEqual(response1.status_code, status.HTTP_201_CREATED)
+
+        self.assertEqual(ClipboardFile.objects.count(), 1)
+        # Ensure file is closed after reading
+        f1 = ClipboardFile.objects.first()
+        with f1.file.open("rb") as f:
+            self.assertEqual(f.read(), b"content 1")
+
+        # Upload second time (overwrite)
+        file_obj2 = SimpleUploadedFile(
+            "test.txt", b"content 2", content_type="text/plain"
+        )
+        response2 = self.client.post(
+            upload_url,
+            {"file": file_obj2, "relative_path": "test.txt"},
+            format="multipart",
+        )
+        self.assertEqual(response2.status_code, status.HTTP_201_CREATED)
+
+        self.assertEqual(ClipboardFile.objects.count(), 1)
+        f2 = ClipboardFile.objects.first()
+        with f2.file.open("rb") as f:
+            self.assertEqual(f.read(), b"content 2")
