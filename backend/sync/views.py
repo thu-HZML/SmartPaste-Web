@@ -68,6 +68,9 @@ class ConfigSyncView(views.APIView):
                 return Response(
                     {"error": "未提供文件"}, status=status.HTTP_400_BAD_REQUEST
                 )
+            if config_obj.file:
+                # delete(save=False) 会删除磁盘上的文件
+                config_obj.file.delete(save=False)
 
             # 更新文件
             config_obj.file = file_obj
