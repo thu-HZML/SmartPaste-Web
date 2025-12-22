@@ -1,191 +1,385 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-"""
-SmartPaste JWT 鉴权功能测试脚本
-"""
-
-import os
-import sys
-import django
-import json
-from django.conf import settings
-
-# 设置Django环境
-# 将backend目录添加到Python路径中
-backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, backend_dir)
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "app.settings")
-django.setup()
-
+from django.test import TestCase, RequestFactory
 from django.contrib.auth import get_user_model
-from utils.jwt import create_jwt_for_user, verify_jwt, generate_jwt
-from rest_framework_simplejwt.tokens import RefreshToken
+from utils.jwt import (
+    create_jwt_for_user,
+    verify_jwt,
+    blacklist_token,
+    encrypt_password,
+    get_user_by_id,
+    jwt_authentication,
+    generate_jwt,
+    login_required,
+    JWTAuthentication,
+    get_client_ip,
+    log_security_event,
+    jwt_required,
+)
+from rest_framework_simplejwt.tokens import RefreshToken, AccessToken
+from rest_framework.response import Response
+from rest_framework import status
+import datetime
+from unittest.mock import MagicMock, patch
+import jwt
 
 User = get_user_model()
 
 
-def test_jwt_functionality():
-    """测试JWT功能"""
-    print("=" * 50)
-    print("SmartPaste JWT 鉴权功能测试")
-    print("=" * 50)
-
-    # 1. 创建测试用户
-    print("\n1. 创建测试用户...")
-    try:
-        # 删除之前的测试用户（如果存在）
-        User.objects.filter(username="testuser").delete()
-
-        user = User.objects.create_user(
+class JWTTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
             username="testuser", email="test@example.com", password="testpass123"
         )
-        print(f"✓ 测试用户创建成功: {user.username}")
-    except Exception as e:
-        print(f"✗ 创建测试用户失败: {e}")
-        return False
+        self.factory = RequestFactory()
 
-    # 2. 测试JWT令牌生成
-    print("\n2. 测试JWT令牌生成...")
-    try:
-        jwt_tokens = create_jwt_for_user(user)
-        print("✓ JWT令牌生成成功")
-        print(f"  - Access Token: {jwt_tokens['access'][:50]}...")
-        print(f"  - Refresh Token: {jwt_tokens['refresh'][:50]}...")
-        print(f"  - Custom JWT: {jwt_tokens['custom_jwt'][:50]}...")
-        print(f"  - Token Type: {jwt_tokens['token_type']}")
-        print(f"  - Expires In: {jwt_tokens['expires_in']} seconds")
-    except Exception as e:
-        print(f"✗ JWT令牌生成失败: {e}")
-        return False
+    def test_jwt_functionality(self):
+        """Test JWT functionality"""
+        # 1. Test JWT generation
+        jwt_tokens = create_jwt_for_user(self.user)
+        self.assertIn("access", jwt_tokens)
+        self.assertIn("refresh", jwt_tokens)
+        self.assertIn("custom_jwt", jwt_tokens)
+        self.assertEqual(jwt_tokens["token_type"], "Bearer")
 
-    # 3. 测试自定义JWT验证
-    print("\n3. 测试自定义JWT验证...")
-    try:
+        # 2. Test custom JWT verification
         custom_jwt = jwt_tokens["custom_jwt"]
         payload = verify_jwt(custom_jwt)
-        if payload:
-            print("✓ 自定义JWT验证成功")
-            print(f"  - User ID: {payload.get('user_id')}")
-            print(f"  - Username: {payload.get('username')}")
-            print(f"  - Email: {payload.get('email')}")
-            print(f"  - Issued At: {payload.get('iat')}")
-            print(f"  - Expires At: {payload.get('exp')}")
-        else:
-            print("✗ 自定义JWT验证失败")
-            return False
-    except Exception as e:
-        print(f"✗ 自定义JWT验证出错: {e}")
-        return False
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload.get("user_id"), self.user.id)
+        self.assertEqual(payload.get("username"), self.user.username)
+        self.assertEqual(payload.get("email"), self.user.email)
 
-    # 4. 测试标准JWT令牌验证
-    print("\n4. 测试标准JWT令牌验证...")
-    try:
+        # 3. Test standard JWT verification
         access_token = jwt_tokens["access"]
-        refresh_token = RefreshToken(jwt_tokens["refresh"])
-
-        # 验证访问令牌
-        from rest_framework_simplejwt.tokens import AccessToken
-
         access_token_obj = AccessToken(access_token)
-        print("✓ 标准访问令牌验证成功")
-        print(f"  - Token Type: {access_token_obj.get('token_type', 'access')}")
-        print(f"  - User ID: {access_token_obj.get('user_id')}")
+        self.assertEqual(str(access_token_obj.get("user_id")), str(self.user.id))
 
-    except Exception as e:
-        print(f"✗ 标准JWT令牌验证失败: {e}")
-        return False
-
-    # 5. 测试令牌黑名单功能
-    print("\n5. 测试令牌黑名单功能...")
-    try:
-        from utils.jwt import blacklist_token
-
+        # 4. Test token blacklisting
         result = blacklist_token(jwt_tokens["refresh"])
-        if result:
-            print("✓ 刷新令牌成功加入黑名单")
-        else:
-            print("✗ 令牌黑名单功能失败")
-            return False
-    except Exception as e:
-        print(f"✗ 令牌黑名单功能出错: {e}")
-        return False
+        self.assertTrue(result)
 
-    # 6. 验证黑名单令牌已失效
-    print("\n6. 验证黑名单令牌已失效...")
-    try:
-        # 尝试再次使用已黑名单的令牌
-        blacklisted_refresh = RefreshToken(jwt_tokens["refresh"])
-        # 这应该会抛出异常
-        print("✗ 黑名单令牌仍然有效（这是错误的）")
-    except Exception as e:
-        print("✓ 黑名单令牌已正确失效")
+        # 5. Verify blacklisted token is invalid
+        with self.assertRaises(Exception):
+            RefreshToken(jwt_tokens["refresh"]).check_blacklist()
 
-    # 7. 清理测试数据
-    print("\n7. 清理测试数据...")
-    try:
-        user.delete()
-        print("✓ 测试用户已删除")
-    except Exception as e:
-        print(f"✗ 清理测试数据失败: {e}")
+    def test_encrypt_password(self):
+        """Test password encryption"""
+        password = "mypassword"
+        encrypted = encrypt_password(password)
+        self.assertIsInstance(encrypted, str)
+        self.assertNotEqual(password, encrypted)
 
-    print("\n" + "=" * 50)
-    print("✓ JWT功能测试完成！所有测试均通过。")
-    print("=" * 50)
-    return True
+        with self.assertRaises(ValueError):
+            encrypt_password("")
 
+    def test_get_user_by_id(self):
+        """Test get user by ID"""
+        # Existing user
+        user, success = get_user_by_id(self.user.id)
+        self.assertTrue(success)
+        self.assertEqual(user, self.user)
 
-def test_api_compatibility():
-    """测试API兼容性"""
-    print("\n" + "=" * 50)
-    print("API兼容性测试")
-    print("=" * 50)
+        # Non-existing user
+        user, success = get_user_by_id(99999)
+        self.assertFalse(success)
+        self.assertIsNone(user)
 
-    print("\n现在您可以使用以下方式进行API认证：")
-    print("\n1. 使用JWT Bearer Token (推荐):")
-    print("   Authorization: Bearer <access_token>")
+    def test_verify_jwt_edge_cases(self):
+        """Test verify_jwt with various inputs"""
+        # None
+        self.assertIsNone(verify_jwt(None))
 
-    print("\n2. 使用传统Token (向后兼容):")
-    print("   Authorization: Token <token_key>")
+        # Invalid token
+        self.assertIsNone(verify_jwt("invalid.token.string"))
 
-    print("\n3. 登录端点现在返回双重认证信息:")
-    print("   POST /api/accounts/login/")
-    print("   Response:")
-    print("   {")
-    print("     'user': {...},")
-    print("     'token': 'token_key',  // 传统Token")
-    print("     'jwt': {")
-    print("       'access': 'jwt_access_token',")
-    print("       'refresh': 'jwt_refresh_token',")
-    print("       'custom_jwt': 'custom_format_jwt',")
-    print("       'expires_in': 86400,")
-    print("       'token_type': 'Bearer'")
-    print("     }")
-    print("   }")
+        # Expired token
+        expired_payload = {"user_id": self.user.id}
+        # Generate a token that expired 1 hour ago
+        expiry = datetime.datetime.utcnow() - datetime.timedelta(hours=1)
+        token = generate_jwt(expired_payload, expiry=expiry)
+        self.assertIsNone(verify_jwt(token))
 
-    print("\n4. 刷新JWT令牌:")
-    print("   POST /api/token/refresh/")
-    print("   Body: { 'refresh': '<refresh_token>' }")
+        # Bearer prefix
+        valid_token = generate_jwt({"user_id": self.user.id})
+        payload = verify_jwt(f"Bearer {valid_token}")
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["user_id"], self.user.id)
 
-    return True
+    def test_jwt_authentication_middleware(self):
+        """Test JWT authentication helper"""
+        # 1. No header
+        request = self.factory.get("/")
+        jwt_authentication(request)
+        self.assertIsNone(request.user)
 
+        # 2. Token header (skipped)
+        request = self.factory.get("/", HTTP_AUTHORIZATION="Token some_token")
+        jwt_authentication(request)
+        self.assertIsNone(request.user)
 
-if __name__ == "__main__":
-    try:
-        # 测试JWT功能
-        jwt_success = test_jwt_functionality()
+        # 3. Valid Bearer header
+        token = generate_jwt({"user_id": self.user.id})
+        request = self.factory.get("/", HTTP_AUTHORIZATION=f"Bearer {token}")
+        jwt_authentication(request)
+        self.assertEqual(request.user, self.user)
 
-        # 测试API兼容性
-        api_success = test_api_compatibility()
+        # 4. Invalid token
+        request = self.factory.get("/", HTTP_AUTHORIZATION="Bearer invalid")
+        jwt_authentication(request)
+        self.assertIsNone(request.user)
 
-        if jwt_success and api_success:
-            print(f"\n🎉 所有测试通过！JWT鉴权系统已成功集成到SmartPaste-Web项目中。")
-            print(f"\n📝 下一步：")
-            print(f"   1. 启动开发服务器: python manage.py runserver")
-            print(f"   2. 使用Postman或其他工具测试API端点")
-            print(f"   3. 前端可以使用JWT或Token两种认证方式")
+    def test_login_required_decorator(self):
+        """Test login_required decorator"""
 
-    except Exception as e:
-        print(f"\n❌ 测试过程中出现错误: {e}")
-        import traceback
+        @login_required
+        def protected_view(request):
+            return Response({"message": "success"})
 
-        traceback.print_exc()
+        # 1. Unauthenticated
+        request = self.factory.get("/")
+        response = protected_view(request)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # 2. Authenticated
+        token = generate_jwt({"user_id": self.user.id})
+        request = self.factory.get("/", HTTP_AUTHORIZATION=f"Bearer {token}")
+        response = protected_view(request)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # 3. Class-based view method (mocking self)
+        class MockView:
+            @login_required
+            def get(self, request):
+                return Response({"message": "success"})
+
+        view = MockView()
+        response = view.get(request)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # 4. jwt_required alias
+        @jwt_required
+        def protected_view_alias(request):
+            return Response({"message": "success"})
+
+        response = protected_view_alias(request)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_jwt_authentication_class(self):
+        """Test JWTAuthentication class"""
+        auth = JWTAuthentication()
+
+        # 1. Custom JWT
+        token = generate_jwt({"user_id": self.user.id})
+        request = self.factory.get("/", HTTP_AUTHORIZATION=f"Bearer {token}")
+        user_auth = auth.authenticate(request)
+        self.assertIsNotNone(user_auth)
+        self.assertEqual(user_auth[0], self.user)
+
+        # 2. Standard JWT (SimpleJWT)
+        refresh = RefreshToken.for_user(self.user)
+        access = str(refresh.access_token)
+        request = self.factory.get("/", HTTP_AUTHORIZATION=f"Bearer {access}")
+        user_auth = auth.authenticate(request)
+        self.assertIsNotNone(user_auth)
+        self.assertEqual(user_auth[0], self.user)
+
+    def test_get_client_ip(self):
+        """Test get_client_ip"""
+        # X-Forwarded-For
+        request = self.factory.get("/", HTTP_X_FORWARDED_FOR="10.0.0.1, 10.0.0.2")
+        self.assertEqual(get_client_ip(request), "10.0.0.1")
+
+        # REMOTE_ADDR
+        request = self.factory.get("/")
+        # RequestFactory doesn't set REMOTE_ADDR by default in the same way, but let's check
+        request.META["REMOTE_ADDR"] = "127.0.0.1"
+        self.assertEqual(get_client_ip(request), "127.0.0.1")
+
+    @patch("utils.jwt.logger")
+    def test_log_security_event(self, mock_logger):
+        """Test log_security_event"""
+        log_security_event(
+            "test_event", username="testuser", ip_address="127.0.0.1", details="details"
+        )
+        mock_logger.info.assert_called_with(
+            "Security Event: test_event | User: testuser | IP: 127.0.0.1 | Details: details"
+        )
+
+    @patch("utils.jwt.jwt.encode")
+    def test_generate_jwt_error(self, mock_encode):
+        """Test generate_jwt error handling"""
+        mock_encode.side_effect = Exception("Encode Error")
+        from utils.jwt import JWTAuthError
+
+        with self.assertRaises(JWTAuthError):
+            generate_jwt({"user_id": 1})
+
+    @patch("utils.jwt.jwt.decode")
+    def test_verify_jwt_error(self, mock_decode):
+        """Test verify_jwt error handling"""
+        mock_decode.side_effect = Exception("Decode Error")
+        self.assertIsNone(verify_jwt("some.token"))
+
+    @patch("utils.jwt.scrypt.hash")
+    def test_encrypt_password_error(self, mock_hash):
+        """Test encrypt_password error handling"""
+        mock_hash.side_effect = Exception("Hash Error")
+        with self.assertRaises(ValueError):
+            encrypt_password("password")
+
+    @patch("utils.jwt.User.objects.get")
+    def test_get_user_by_id_error(self, mock_get):
+        """Test get_user_by_id error handling"""
+        mock_get.side_effect = Exception("DB Error")
+        user, success = get_user_by_id(1)
+        self.assertFalse(success)
+        self.assertIsNone(user)
+
+    @patch("utils.jwt.verify_jwt")
+    def test_jwt_authentication_no_user_id(self, mock_verify):
+        """Test jwt_authentication with payload missing user_id"""
+        mock_verify.return_value = {"username": "test"}  # No user_id
+        request = self.factory.get("/", HTTP_AUTHORIZATION="Bearer token")
+        jwt_authentication(request)
+        self.assertIsNone(request.user)
+
+    @patch("utils.jwt.verify_jwt")
+    def test_jwt_authentication_exception(self, mock_verify):
+        """Test jwt_authentication exception"""
+        mock_verify.side_effect = Exception("Auth Error")
+        request = self.factory.get("/", HTTP_AUTHORIZATION="Bearer token")
+        jwt_authentication(request)
+        self.assertIsNone(request.user)
+
+    def test_login_required_no_request(self):
+        """Test login_required with no request object"""
+
+        @login_required
+        def simple_func(a, b):
+            return a + b
+
+        self.assertEqual(simple_func(1, 2), 3)
+
+    @patch("utils.jwt.jwt_authentication")
+    def test_login_required_exception(self, mock_auth):
+        """Test login_required exception handling"""
+        mock_auth.side_effect = Exception("Auth Error")
+
+        @login_required
+        def protected_view(request):
+            return Response("ok")
+
+        request = self.factory.get("/")
+        response = protected_view(request)
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @patch("utils.jwt.SmartPasteRefreshToken.for_user")
+    def test_create_jwt_for_user_error(self, mock_for_user):
+        """Test create_jwt_for_user error handling"""
+        mock_for_user.side_effect = Exception("Token Error")
+        from utils.jwt import JWTAuthError
+
+        with self.assertRaises(JWTAuthError):
+            create_jwt_for_user(self.user)
+
+    @patch("utils.jwt.RefreshToken")
+    def test_blacklist_token_error(self, mock_refresh):
+        """Test blacklist_token error handling"""
+        mock_refresh.side_effect = Exception("Blacklist Error")
+        self.assertFalse(blacklist_token("token"))
+
+    @patch("utils.jwt.settings")
+    def test_generate_jwt_expire_hours(self, mock_settings):
+        """Test generate_jwt with invalid expire hours"""
+        mock_settings.JWT_EXPIRE_HOURS = -1
+        mock_settings.SECRET_KEY = "secret"
+        mock_settings.JWT_SECRET = "secret"
+        token = generate_jwt({"user_id": 1})
+        self.assertIsNotNone(token)
+
+    def test_encrypt_password_with_string_salt(self):
+        """Test encrypt_password with string salt (coverage for line 141)"""
+        # We need to mock settings.SALT to be a string
+        with patch("utils.jwt.settings") as mock_settings:
+            mock_settings.SALT = "string_salt"
+            mock_settings.SECRET_KEY = "secret"
+            # We also need to mock scrypt because we can't control the salt passed to it easily
+            # if we want to verify the logic before scrypt.
+            # Actually, the code is:
+            # salt = getattr(settings, "SALT", ...)
+            # if isinstance(salt, str): salt = salt.encode("utf-8")
+            # key = scrypt.hash(..., salt, ...)
+
+            # So if we set SALT to a string, it should be encoded.
+            # We can verify this by mocking scrypt.hash and checking the salt arg.
+            with patch("utils.jwt.scrypt.hash") as mock_hash:
+                mock_hash.return_value = b"hashed"
+                encrypt_password("password")
+
+                # Check call args
+                args, _ = mock_hash.call_args
+                # args[1] is salt
+                self.assertEqual(args[1], b"string_salt")
+
+    @patch("utils.jwt.logger")
+    def test_jwt_authentication_logging(self, mock_logger):
+        """Test logging in jwt_authentication"""
+        # 1. Invalid token (should log warning)
+        request = self.factory.get("/", HTTP_AUTHORIZATION="Bearer invalid_token")
+        jwt_authentication(request)
+        # Check if logger.warning was called (lines 200-202)
+        self.assertTrue(mock_logger.warning.called)
+
+        # 2. Exception (should log error)
+        with patch("utils.jwt.verify_jwt", side_effect=Exception("Boom")):
+            request = self.factory.get("/", HTTP_AUTHORIZATION="Bearer token")
+            jwt_authentication(request)
+            # Check if logger.error was called (lines 206-207)
+            self.assertTrue(mock_logger.error.called)
+
+    def test_login_required_args_handling(self):
+        """Test login_required args handling (line 228)"""
+
+        # Case: Class method where args[0] is self, args[1] is request
+        class MyView:
+            @login_required
+            def get(self, request):
+                return Response("ok")
+
+        view = MyView()
+        # We need a valid token
+        token = generate_jwt({"user_id": self.user.id})
+        request = self.factory.get("/", HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        # This should hit "request = args[1]"
+        response = view.get(request)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_jwt_authentication_class_none_returns(self):
+        """Test JWTAuthentication.authenticate returns None (lines 278, 282)"""
+        auth = JWTAuthentication()
+        request = self.factory.get("/")
+
+        # 1. No header -> None
+        self.assertIsNone(auth.authenticate(request))
+
+        # 2. Invalid header format -> None
+        request = self.factory.get("/", HTTP_AUTHORIZATION="Basic user:pass")
+        self.assertIsNone(auth.authenticate(request))
+
+    @patch("utils.jwt.verify_jwt")
+    def test_jwt_authentication_class_exceptions(self, mock_verify):
+        """Test JWTAuthentication.authenticate exceptions (lines 293-301)"""
+        auth = JWTAuthentication()
+        request = self.factory.get("/", HTTP_AUTHORIZATION="Bearer token")
+
+        # 1. InvalidTokenError -> None (caught and logged)
+        mock_verify.side_effect = jwt.InvalidTokenError()
+        self.assertIsNone(auth.authenticate(request))
+
+        # 2. ExpiredSignatureError -> None
+        mock_verify.side_effect = jwt.ExpiredSignatureError()
+        self.assertIsNone(auth.authenticate(request))
+
+        # 3. Generic Exception -> None
+        mock_verify.side_effect = Exception("Boom")
+        self.assertIsNone(auth.authenticate(request))

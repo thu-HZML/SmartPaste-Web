@@ -6,7 +6,10 @@ __pycache__/
 local_settings.py
 **/migrations/*.py
 
-# Document
+# Test
+.coverage
+htmlcov/
+media/
 
 # VSCode
 .vscode/
