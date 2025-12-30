@@ -1,18 +1,26 @@
-from typing import Optional, Union
+from typing import Union
 from rest_framework import status, views, generics, permissions, parsers
 from rest_framework.response import Response
 from rest_framework.request import Request
 from django.http import FileResponse, StreamingHttpResponse
+from django.contrib.auth import get_user_model
 from utils.jwt import (
     JWTAuthentication,
-    login_required,
     get_client_ip,
     log_security_event,
 )
 from .models import UserConfig, ClipboardFile
-from .serializers import UserConfigSerializer, ClipboardFileSerializer
-from .db import sync_sqlite_to_db, download_sqlite_from_db, get_data_from_db
+from .serializers import ClipboardFileSerializer
+from .db import (
+    sync_sqlite_to_db,
+    download_sqlite_from_db,
+    get_data_from_db,
+    clear_user_clipboard_data,
+)
 import os
+
+
+User = get_user_model()
 
 
 class ConfigSyncView(views.APIView):
@@ -423,5 +431,78 @@ class SqliteGetView(views.APIView):
             )
             return Response(
                 {"error": f"database data retrieval failed: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class SqliteClearView(views.APIView):
+    """POST: 清空指定用户关联的 SQLite/剪贴板同步数据（不删除用户）。
+
+    - 参数：user_id（URL Path 参数）
+    - 鉴权：必须登录（仅支持 JWT）；普通用户只能清空自己的数据；staff/superuser 可清空任意用户。
+    """
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request: Request, user_id: int) -> Response:
+        try:
+            try:
+                target_user = User.objects.get(id=user_id, is_active=True)
+            except User.DoesNotExist:
+                return Response(
+                    {"error": "用户不存在"}, status=status.HTTP_404_NOT_FOUND
+                )
+
+            # 权限：普通用户只能清自己的；管理员可清任意用户
+            is_admin = bool(getattr(request.user, "is_staff", False)) or bool(
+                getattr(request.user, "is_superuser", False)
+            )
+            if request.user.id != target_user.id and not is_admin:
+                log_security_event(
+                    "sqlite_clear_forbidden",
+                    username=request.user.username,
+                    ip_address=get_client_ip(request),
+                    details=f"Attempted to clear user_id={target_user.id}",
+                )
+                return Response(
+                    {"error": "无权限清空该用户数据"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            log_security_event(
+                "sqlite_clear_start",
+                username=request.user.username,
+                ip_address=get_client_ip(request),
+                details=f"target_user_id={target_user.id}",
+            )
+
+            deleted_counts = clear_user_clipboard_data(target_user)
+
+            log_security_event(
+                "sqlite_clear_success",
+                username=request.user.username,
+                ip_address=get_client_ip(request),
+                details=f"target_user_id={target_user.id}, deleted={deleted_counts}",
+            )
+
+            return Response(
+                {
+                    "message": "sqlite data cleared",
+                    "user_id": target_user.id,
+                    "deleted": deleted_counts,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception as e:
+            log_security_event(
+                "sqlite_clear_error",
+                username=getattr(request.user, "username", "unknown"),
+                ip_address=get_client_ip(request),
+                details=str(e),
+            )
+            return Response(
+                {"error": f"sqlite clear failed: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
