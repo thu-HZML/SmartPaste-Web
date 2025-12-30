@@ -7,6 +7,7 @@ from .views import (
     SqlitePushView,
     SqlitePullView,
     SqliteGetView,
+    SqliteClearView,
 )
 
 app_name = "sync"
@@ -18,6 +19,11 @@ urlpatterns = [
     path("sqlite/push/", SqlitePushView.as_view(), name="push-sqlite"),
     path("sqlite/pull/", SqlitePullView.as_view(), name="pull-sqlite"),
     path("sqlite/get/", SqliteGetView.as_view(), name="get-sqlite"),
+    path(
+        "sqlite/clear/<int:user_id>/",
+        SqliteClearView.as_view(),
+        name="sqlite-clear",
+    ),
     # 文件操作
     path("files/upload/", FileUploadView.as_view(), name="file-upload"),
     path("files/", FileListView.as_view(), name="file-list"),
