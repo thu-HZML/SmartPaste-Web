@@ -7,7 +7,13 @@ import logging
 logger = logging.getLogger(__name__)
 
 from django.db import transaction
-from .models import ClipboardData, ClipboardFolder, FolderItem, ExtendedData
+from .models import (
+    ClipboardData,
+    ClipboardFolder,
+    FolderItem,
+    ExtendedData,
+    ClipboardFile,
+)
 
 
 def _ensure_bytes(val):
@@ -373,3 +379,42 @@ def get_data_from_db(user):
             }
         )
     return user_data
+
+
+def clear_user_clipboard_data(user):
+    """删除指定用户关联的所有剪贴板数据（不删除用户本身）。
+
+    覆盖范围：
+    - sync.ClipboardData / sync.ClipboardFolder / sync.FolderItem / sync.ExtendedData
+    - sync.ClipboardFile（同时清理磁盘上的物理文件）
+
+    返回：删除前的统计信息（便于 API 返回与审计日志）。
+    """
+
+    # 先“检索对应数据”做统计（满足需求 & 便于日志审计）
+    counts = {
+        "clipboard_files": ClipboardFile.objects.filter(user=user).count(),
+        "data": ClipboardData.objects.filter(user=user).count(),
+        "folders": ClipboardFolder.objects.filter(user=user).count(),
+        "folder_items": FolderItem.objects.filter(folder__user=user).count(),
+        "extended_data": ExtendedData.objects.filter(item__user=user).count(),
+    }
+
+    with transaction.atomic():
+        # 先删依赖表，避免外键约束问题（同时也更直观）
+        ExtendedData.objects.filter(item__user=user).delete()
+        FolderItem.objects.filter(folder__user=user).delete()
+
+        # 再删主表
+        ClipboardFolder.objects.filter(user=user).delete()
+        ClipboardData.objects.filter(user=user).delete()
+
+        # ClipboardFile 需要调用模型 delete() 才会清理物理文件
+        for f in ClipboardFile.objects.filter(user=user):
+            try:
+                f.delete()
+            except Exception:
+                # 清理失败不影响其他数据删除
+                pass
+
+    return counts
