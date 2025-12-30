@@ -240,7 +240,7 @@ class SqlitePushView(views.APIView):
         """接收 SQLite 文件并执行同步"""
         try:
             # 尝试获取 'file' 或 'db_file' 以兼容不同的客户端命名
-            file_obj = request.FILES.get("db_file")
+            file_obj = request.FILES.get("db_file") or request.FILES.get("file")
 
             if not file_obj:
                 # 修改此处：返回实际接收到的 keys，方便调试

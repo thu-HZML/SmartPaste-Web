@@ -1,0 +1,10 @@
+[run]
+source = .
+omit =
+    */migrations/*
+    manage.py
+    app/asgi.py
+    app/wsgi.py
+    client_upload.py
+    downloader.py
+    tools/management/commands/dbmanager.py
